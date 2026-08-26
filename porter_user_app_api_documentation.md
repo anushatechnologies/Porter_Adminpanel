@@ -145,27 +145,102 @@
 
 ---
 
-## 3. Pricing & Estimates
+## 3. Services, Fleet Categories & Estimates
 
-### 3.1 Get Active Vehicles
-- **Endpoint**: `GET /api/pricing/vehicles`
+### 3.1 Get Category-Wise Services (User App Home Screen & Booking Grid)
+- **Endpoint**: `GET /api/services` (or `GET /api/services?category=<category_id>`)
+- **Query Parameters** *(Optional)*:
+  - `category`: `vehicle` | `two_wheeler` | `packers`
+  - `city`: `Hyderabad`
+- **Categories Supported**:
+  1. `vehicle` — **🚚 Porter Trucks & Fleet** (Tata Ace, 8ft Pickup, 3 Wheeler, etc.)
+  2. `two_wheeler` — **🛵 2 Wheeler / Bike** (Instant parcel & small packages)
+  3. `packers` — **📦 Packers & Movers** (House / office shifting)
 - **Response (Success 200)**:
   ```json
   [
     {
-      "id": 1,
-      "name": "2 Wheeler",
-      "basePrice": 40.0,
-      "pricePerKm": 10.0,
-      "capacityWeight": "20 kg",
-      "iconUrl": "https://..."
+      "serviceId": "tata-ace",
+      "name": "Tata Ace (Chota Hathi)",
+      "label": "Tata Ace",
+      "category": "vehicle",
+      "categoryName": "Porter Trucks & Fleet",
+      "subtitle": "Ideal for 1 BHK house shifting or business cargo",
+      "baseFare": 249.0,
+      "baseKm": 2.0,
+      "perKmRate": 20.0,
+      "helperRate": 300.0,
+      "capacityKg": 750,
+      "capacityLabel": "750 Kg",
+      "dimensions": { "length": "7 ft", "width": "4.5 ft", "height": "5 ft" },
+      "etaLabel": "10-15 mins",
+      "iconUrl": "https://poteranusha.s3.ap-south-2.amazonaws.com/services/tata-ace.png",
+      "bgTint": "#EEF4FF",
+      "isActive": true,
+      "displayOrder": 1,
+      "availableCities": ["Hyderabad"]
+    },
+    {
+      "serviceId": "2-wheeler",
+      "name": "2 Wheeler / Bike",
+      "label": "Bike",
+      "category": "two_wheeler",
+      "categoryName": "2 Wheeler / Bike",
+      "subtitle": "Fastest delivery for documents & small packages",
+      "baseFare": 40.0,
+      "baseKm": 2.0,
+      "perKmRate": 10.0,
+      "helperRate": 0.0,
+      "capacityKg": 20,
+      "capacityLabel": "20 Kg",
+      "dimensions": { "length": "40 cm", "width": "40 cm", "height": "40 cm" },
+      "etaLabel": "5-10 mins",
+      "iconUrl": "https://poteranusha.s3.ap-south-2.amazonaws.com/services/bike.png",
+      "bgTint": "#E0F2FE",
+      "isActive": true,
+      "displayOrder": 2,
+      "availableCities": ["Hyderabad"]
+    },
+    {
+      "serviceId": "packers-movers",
+      "name": "Packers & Movers",
+      "label": "Packers & Movers",
+      "category": "packers",
+      "categoryName": "Packers & Movers",
+      "subtitle": "Complete relocation with loading, unloading & packing assistance",
+      "baseFare": 1499.0,
+      "baseKm": 5.0,
+      "perKmRate": 45.0,
+      "helperRate": 600.0,
+      "capacityKg": 2000,
+      "capacityLabel": "1-2 BHK Full Shifting",
+      "dimensions": { "length": "14 ft", "width": "6 ft", "height": "6.5 ft" },
+      "etaLabel": "Scheduled / 2-3 hrs",
+      "iconUrl": "https://poteranusha.s3.ap-south-2.amazonaws.com/services/packers.png",
+      "bgTint": "#F3E8FF",
+      "isActive": true,
+      "displayOrder": 3,
+      "availableCities": ["Hyderabad"]
     }
   ]
   ```
 
 ---
 
-### 3.2 Estimate Pricing (All Vehicles)
+### 3.2 Get Grouped Services for Category Tabs / Carousel
+- **Endpoint**: `GET /api/services/grouped`
+- **Response (Success 200)**:
+  ```json
+  {
+    "vehicle": [ /* array of Porter Trucks & Fleet items */ ],
+    "two_wheeler": [ /* array of 2 Wheeler / Bike items */ ],
+    "packers": [ /* array of Packers & Movers items */ ]
+  }
+  ```
+
+---
+
+### 3.3 Estimate Pricing (All Vehicles / Services)
 - **Endpoint**: `POST /api/pricing/estimate-all`
 - **Request Body**:
   ```json
@@ -174,7 +249,8 @@
     "pickupLng": 78.3915,
     "dropLat": 17.4560,
     "dropLng": 78.4000,
-    "distanceKm": 5.2
+    "distanceKm": 5.2,
+    "city": "Hyderabad"
   }
   ```
 - **Response (Success 200)**:
@@ -182,9 +258,20 @@
   {
     "estimates": [
       {
+        "serviceId": "2-wheeler",
         "vehicleId": 1,
+        "category": "two_wheeler",
         "vehicleName": "2 Wheeler",
-        "estimatedPrice": 92.0
+        "estimatedPrice": 72.0,
+        "eta": "8 mins"
+      },
+      {
+        "serviceId": "tata-ace",
+        "vehicleId": 2,
+        "category": "vehicle",
+        "vehicleName": "Tata Ace",
+        "estimatedPrice": 313.0,
+        "eta": "12 mins"
       }
     ]
   }

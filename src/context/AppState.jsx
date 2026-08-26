@@ -17,6 +17,19 @@ export const AppStateProvider = ({ children }) => {
     localStorage.setItem('porter_dark_mode', darkMode);
   }, [darkMode]);
 
+  // One-time cleanup: remove stale fake vehicle category overrides from localStorage
+  useEffect(() => {
+    const stalePrefix = 'Porter Truck';
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('porter_driver_veh_type_')) {
+        const val = localStorage.getItem(key) || '';
+        if (val.startsWith(stalePrefix) || val === 'Commercial Vehicle') {
+          localStorage.removeItem(key);
+        }
+      }
+    });
+  }, []);
+
   const [orders, setOrders] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [payouts, setPayouts] = useState([]);
@@ -25,23 +38,12 @@ export const AppStateProvider = ({ children }) => {
   const [customers, setCustomers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [franchises, setFranchises] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [adminMetrics, setAdminMetrics] = useState(null);
   const [settings, setSettings] = useState({});
   const [usersList, setUsersList] = useState([]);
   const [driverLocations, setDriverLocations] = useState({});
-  const [banners, setBanners] = useState(() => {
-    try {
-      const saved = localStorage.getItem('porter_admin_banners');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('porter_admin_banners', JSON.stringify(banners));
-    } catch (e) {}
-  }, [banners]);
+  const [banners, setBanners] = useState([]);
 
   const [loading, setLoading] = useState(true);
 
@@ -158,8 +160,6 @@ export const AppStateProvider = ({ children }) => {
     };
   };
 
-  const isLocalDevOfflineRef = useRef(false);
-
   const loginAdminBackend = async () => {
     try {
       const res = await fetch('/api/auth/login', {
@@ -178,16 +178,14 @@ export const AppStateProvider = ({ children }) => {
           return data.token;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Admin Login] Backend login attempt error:', e);
+    }
     return null;
   };
 
   // Auth-aware Fetch Helper with real backend token & 401 auto-relogin
   const authFetch = async (url, options = {}) => {
-    if (isLocalDevOfflineRef.current) {
-      return { ok: false, status: 401, json: async () => ([]) };
-    }
-
     let token = localStorage.getItem('porter_admin_token');
 
     // If token is missing or is old dummy string, perform real login
@@ -202,111 +200,26 @@ export const AppStateProvider = ({ children }) => {
     };
 
     try {
-      const res = await fetch(url, { ...options, headers });
+      let res = await fetch(url, { ...options, headers });
       if (res.status === 401) {
         // Clear invalid token & attempt fresh login once
         localStorage.removeItem('porter_admin_token');
         const freshToken = await loginAdminBackend();
         if (freshToken) {
-          const retryRes = await fetch(url, {
-            ...options,
-            headers: {
-              ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
-              'Authorization': `Bearer ${freshToken}`,
-              ...(options.headers || {})
-            }
-          });
-          if (retryRes.ok) return retryRes;
+          const retryHeaders = {
+            ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+            'Authorization': `Bearer ${freshToken}`,
+            ...(options.headers || {})
+          };
+          res = await fetch(url, { ...options, headers: retryHeaders });
         }
-        isLocalDevOfflineRef.current = true;
-        return { ok: false, status: 401, json: async () => ([]) };
       }
       return res;
     } catch (e) {
-      isLocalDevOfflineRef.current = true;
-      return { ok: false, json: async () => ([]) };
+      console.error(`[authFetch] Network fetch error for ${url}:`, e);
+      throw e;
     }
   };
-
-  const defaultDriversList = [
-    {
-      id: "DRV-102",
-      driverId: "102",
-      name: "Supriya",
-      phone: "TG63737383882",
-      vehicleNo: "TG63737383882",
-      vehicleNumber: "TG63737383882",
-      vehicleType: "Commercial",
-      vehicle: "Commercial",
-      status: "online",
-      kyc: "verified",
-      rating: 4.8,
-      location: { lat: 17.4483, lng: 78.3915, x: 17.4483, y: 78.3915, speed: 0, angle: 180 }
-    },
-    {
-      id: "DRV-103",
-      driverId: "103",
-      name: "Venkat",
-      phone: "TG63728282929",
-      vehicleNo: "TG63728282929",
-      vehicleNumber: "TG63728282929",
-      vehicleType: "Commercial",
-      vehicle: "Commercial",
-      status: "online",
-      kyc: "verified",
-      rating: 4.9,
-      location: { lat: 17.4350, lng: 78.4100, x: 17.4350, y: 78.4100, speed: 0, angle: 90 }
-    },
-    {
-      id: "DRV-104",
-      driverId: "104",
-      name: "sravankumar",
-      phone: "TS 09 AB 1234",
-      vehicleNo: "TS 09 AB 1234",
-      vehicleNumber: "TS 09 AB 1234",
-      vehicleType: "Commercial",
-      vehicle: "Commercial",
-      status: "online",
-      kyc: "verified",
-      rating: 4.7,
-      location: { lat: 17.4365, lng: 78.3725, x: 17.4365, y: 78.3725, speed: 0, angle: 45, street: 'IKEA Store Hyderabad, Raidurg' }
-    }
-  ];
-
-  const defaultOrdersList = [
-    {
-      id: 1042,
-      bookingId: "ORD-9821",
-      customer: "Rahul Sharma",
-      userEmail: "rahul.s@example.com",
-      userPhone: "9876543210",
-      pickup: { addressLine: "Koramangala 5th Block, Bengaluru", lat: 17.4483, lng: 78.3915 },
-      drop: { addressLine: "Indiranagar 100ft Road, Bengaluru", lat: 17.4560, lng: 78.4000 },
-      amount: 350.00,
-      status: "assigned",
-      driver: "Supriya",
-      driverEmail: "supriya@example.com",
-      driverPhone: "TG63737383882",
-      serviceName: "Commercial",
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 1043,
-      bookingId: "ORD-9822",
-      customer: "Ananya Roy",
-      userEmail: "ananya.r@example.com",
-      userPhone: "9876501234",
-      pickup: { addressLine: "Jubilee Hills, Hyderabad", lat: 17.4350, lng: 78.4100 },
-      drop: { addressLine: "Hitech City, Hyderabad", lat: 17.4500, lng: 78.4300 },
-      amount: 450.00,
-      status: "transit",
-      driver: "sravankumar",
-      driverEmail: "sravan@example.com",
-      driverPhone: "TS 09 AB 1234",
-      serviceName: "Commercial",
-      createdAt: new Date().toISOString()
-    }
-  ];
 
   // Fetch all initial data from backend API
   const fetchAllData = async () => {
@@ -314,7 +227,7 @@ export const AppStateProvider = ({ children }) => {
       const [
         ordersRes, bookingsRes, driversRes, payoutsRes, ticketsRes, 
         notificationsRes, customersRes, vehiclesRes, franchisesRes, 
-        settingsRes, usersRes, bannersRes
+        settingsRes, usersRes, bannersRes, metricsRes
       ] = await Promise.all([
         authFetch('/api/orders').then(res => res.json()).catch(() => []),
         authFetch('/api/bookings').then(res => res.json()).catch(() => []),
@@ -327,13 +240,25 @@ export const AppStateProvider = ({ children }) => {
         authFetch('/api/franchises').then(res => res.json()).catch(() => []),
         authFetch('/api/settings').then(res => res.json()).catch(() => ({})),
         authFetch('/api/users').then(res => res.json()).catch(() => []),
-        authFetch('/api/banners').then(res => res.json()).catch(() => [])
+        authFetch('/api/banners').then(res => res.json()).catch(() => []),
+        authFetch('/api/admin/metrics').then(res => res.json()).catch(() => null)
       ]);
 
-      let rawOrdersList = extractArray(ordersRes).concat(extractArray(bookingsRes));
-      if (rawOrdersList.length === 0) {
-        rawOrdersList = defaultOrdersList;
+      // Resolve operational cities from /api/franchises and /api/settings
+      const dynamicCitiesFromFranchises = Array.isArray(franchisesRes)
+        ? franchisesRes.map(f => f.city || f.location || f.name).filter(Boolean)
+        : [];
+      const dynamicCitiesFromSettings = settingsRes?.coverageCities
+        ? String(settingsRes.coverageCities).split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+      const mergedCities = Array.from(new Set(['Hyderabad', ...dynamicCitiesFromFranchises, ...dynamicCitiesFromSettings]));
+      setCities(mergedCities.map(c => typeof c === 'string' ? { id: c, name: c, active: true } : c));
+
+      if (metricsRes && metricsRes.success !== false) {
+        setAdminMetrics(metricsRes);
       }
+
+      let rawOrdersList = extractArray(ordersRes).concat(extractArray(bookingsRes));
 
       const uniqueRawOrdersMap = new Map();
       rawOrdersList.forEach(item => {
@@ -353,9 +278,6 @@ export const AppStateProvider = ({ children }) => {
       });
 
       let rawDrivers = extractArray(driversRes);
-      if (rawDrivers.length === 0) {
-        rawDrivers = defaultDriversList;
-      }
 
       // Deduplicate drivers and map vehicles 1:1
       const seenDriverNames = new Set();
@@ -413,15 +335,84 @@ export const AppStateProvider = ({ children }) => {
           return (dEmail && oEmail === dEmail) || (dName && oName === dName);
         });
 
+        const cleanKey = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const dKey = cleanKey(d.name);
+        const dPlateKey = cleanKey(d.vehicleNumber || d.vehicleNo);
+
+        const matchedVeh = rawVehicles.find(v => {
+          const vPlateKey = cleanKey(v.plate || v.vehicleNumber);
+          // Plate is the most reliable identifier — use exact match only
+          if (vPlateKey && dPlateKey && vPlateKey === dPlateKey) return true;
+          // Fallback to owner name only when driver has no plate at all
+          if (!dPlateKey) {
+            const vOwnerKey = cleanKey(v.owner || v.ownerName);
+            return vOwnerKey && (vOwnerKey === dKey || dKey.includes(vOwnerKey) || vOwnerKey.includes(dKey));
+          }
+          return false;
+        });
+
+        // Check if driver completed orders for a specific service
+        const matchedOrderService = driverCompletedOrders.find(o => o.serviceName)?.serviceName;
+
+        // Check persistent override from admin
+        const localOverride = localStorage.getItem(`porter_driver_veh_type_${d.id || d.driverId}`);
+
+        // Normalize backend vehicle type strings to display labels
+        const normalizeVehicleType = (raw) => {
+          if (!raw) return null;
+          const r = String(raw).toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (['scooter','scooty','bike','bikecourier','2wheeler','twowheeler','motorcycle','courier','moped'].some(k => r.includes(k))) {
+            return '2 Wheeler (Bike Courier)';
+          }
+          if (['3wheeler','threewheeler','auto','ape','champion','loader','tuk'].some(k => r.includes(k))) {
+            return '3 Wheeler (500kg)';
+          }
+          if (['tataace','superace','chotahathi','ace','minitruck','bolero','750'].some(k => r.includes(k))) {
+            return 'Tata Ace (750kg)';
+          }
+          if (['pickup8ft','pickup','8ft','1200','dost'].some(k => r.includes(k))) {
+            return 'Pickup 8ft (1200kg)';
+          }
+          if (['tata407','407','2500','eicher','heavytruck'].some(k => r.includes(k))) {
+            return 'Tata 407 (2500kg)';
+          }
+          // Return original if unrecognised but not null
+          return raw;
+        };
+
+        // Priority: admin override → backend driver.vehicleType → matched vehicle record → order history
+        // Never invent a fake category — show null/unregistered if nothing is known
+        const rawVehicleType = localOverride
+          || normalizeVehicleType(d.vehicle || d.vehicleType)
+          || normalizeVehicleType(matchedVeh?.type || matchedVeh?.model)
+          || normalizeVehicleType(matchedOrderService)
+          || null;
+
+        const resolvedVehicle = rawVehicleType || 'Unregistered Vehicle';
+        const resolvedVehicleType = resolvedVehicle;
+
+        const dId = d.id || d.driverId;
+        const savedWallet = localStorage.getItem(`porter_driver_wallet_${dId}`);
+        // Prioritize live backend wallet_balance / walletBalance fields
+        const walletBalance = d.walletBalance != null 
+          ? Number(d.walletBalance)
+          : (d.wallet_balance != null 
+            ? Number(d.wallet_balance)
+            : (d.wallet != null 
+              ? Number(d.wallet) 
+              : (savedWallet != null ? parseFloat(savedWallet) : 0)));
+
         return {
           ...d,
           id: d.id || d.driverId || `DRV-${Math.floor(100 + Math.random() * 900)}`,
           driverId: d.driverId || d.id,
-          vehicleNo: d.vehicleNumber || d.vehicleNo || 'TS 09 AB 1234',
-          vehicleType: d.vehicleType || d.vehicle || d.serviceName || 'Commercial Vehicle',
-          vehicle: d.vehicle || d.vehicleType || 'Commercial Vehicle',
+          vehicleNo: d.vehicleNumber || d.vehicleNo || matchedVeh?.plate || 'TS 09 AB 1234',
+          vehicleType: resolvedVehicleType,
+          vehicle: resolvedVehicle,
           trips: driverCompletedOrders.length,
           earnings: driverCompletedOrders.reduce((sum, o) => sum + (o.amount || 0), 0),
+          wallet: walletBalance,
+          walletBalance: walletBalance,
           rating: d.rating ? parseFloat(d.rating) : 4.8,
           status: uiStatus,
           docs: docs
@@ -434,6 +425,47 @@ export const AppStateProvider = ({ children }) => {
       setTickets(extractArray(ticketsRes));
       setNotifications(extractArray(notificationsRes));
       setUsersList(userList);
+
+      // Query exact driver wallet history to calculate available deposit balance (Recharges - Commissions)
+      Promise.allSettled(
+        uniqueRawDrivers.map(async (d) => {
+          const cleanId = String(d.id || d.driverId).replace(/^DRV-/, '');
+          try {
+            const wRes = await authFetch(`/api/drivers/${cleanId}/wallet`);
+            if (wRes.ok) {
+              const wData = await wRes.json();
+              if (wData && Array.isArray(wData.recentTransactions) && wData.recentTransactions.length > 0) {
+                const txns = wData.recentTransactions;
+                const recharges = txns.filter(t => t.type === 'RECHARGE').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                const commissions = txns.filter(t => t.type === 'COMMISSION_DEDUCTION').reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+                const depositNet = parseFloat((recharges - commissions).toFixed(2));
+                return { id: d.id, driverId: d.driverId, cleanId, depositNet };
+              }
+            }
+          } catch (e) {}
+          return null;
+        })
+      ).then(results => {
+        const walletUpdates = {};
+        results.forEach(r => {
+          if (r.status === 'fulfilled' && r.value) {
+            walletUpdates[r.value.id] = r.value.depositNet;
+            walletUpdates[r.value.driverId] = r.value.depositNet;
+            walletUpdates[r.value.cleanId] = r.value.depositNet;
+          }
+        });
+        if (Object.keys(walletUpdates).length > 0) {
+          setDrivers(prev => prev.map(drv => {
+            const clean = String(drv.id || drv.driverId).replace(/^DRV-/, '');
+            const netBal = walletUpdates[drv.id] ?? walletUpdates[drv.driverId] ?? walletUpdates[clean];
+            if (netBal !== undefined) {
+              const updatedStatus = netBal <= 0 ? 'offline' : drv.status;
+              return { ...drv, wallet: netBal, walletBalance: netBal, status: updatedStatus };
+            }
+            return drv;
+          }));
+        }
+      });
 
       const customerUsers = userList.filter(u => {
         const r = (u.role || '').toLowerCase();
@@ -490,6 +522,11 @@ export const AppStateProvider = ({ children }) => {
       setVehicles(mappedVehicles);
       setFranchises(rawFranchises);
       setSettings(settingsRes || {});
+      setPayouts(extractArray(payoutsRes));
+      setTickets(extractArray(ticketsRes));
+      setNotifications(extractArray(notificationsRes));
+      setUsersList(userList);
+
       // Helper to identify dummy/broken images (e.g. 1x1 green test pixel or broken S3 links)
       const isDummyImage = (url) => {
         if (!url) return true;
@@ -507,30 +544,7 @@ export const AppStateProvider = ({ children }) => {
           isActive: b.isActive !== undefined ? Boolean(b.isActive) : (b.active !== undefined ? Boolean(b.active) : true)
         }));
 
-      const savedLocalBanners = (() => {
-        try {
-          const raw = localStorage.getItem('porter_admin_banners');
-          return raw ? JSON.parse(raw) : [];
-        } catch (e) {
-          return [];
-        }
-      })().filter(b => b && !isDummyImage(b.imageUrl) && b.id !== 'BNR-1001' && b.id !== 'BNR-1002');
-
-      const bannerMap = new Map();
-      rawBanners.forEach(b => {
-        const key = b.id || b.title;
-        if (key) bannerMap.set(key, b);
-      });
-      savedLocalBanners.forEach(b => {
-        const key = b.id || b.title;
-        if (key && !bannerMap.has(key)) {
-          bannerMap.set(key, b);
-        }
-      });
-
-      const combinedBanners = Array.from(bannerMap.values());
-      setBanners(combinedBanners);
-      try { localStorage.setItem('porter_admin_banners', JSON.stringify(combinedBanners)); } catch (e) {}
+      setBanners(rawBanners);
     } catch (error) {
       console.error('Error fetching backend data:', error);
     } finally {
@@ -923,12 +937,14 @@ export const AppStateProvider = ({ children }) => {
     localStorage.removeItem('porter_admin_token');
   };
 
-  const assignDriver = (orderId, driverId) => {
+  const assignDriver = async (orderId, driverId) => {
     const cleanDriverId = String(driverId).replace(/^DRV-/, '');
     const selectedDriver = drivers.find(d => d.id === driverId || d.driverId === driverId || String(d.id) === cleanDriverId);
-    if (!selectedDriver) return;
+    if (!selectedDriver) return { success: false, message: 'Driver not found' };
 
-    // Optimistic Update
+    const orderToUpdate = orders.find(o => o.id === orderId || o.backendId === orderId);
+
+    // Optimistic Update: Link driver to order, wallet untouched until ride completion
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setOrders(prev => prev.map(order => (order.id === orderId || order.backendId === orderId) ? {
       ...order,
@@ -936,49 +952,137 @@ export const AppStateProvider = ({ children }) => {
       driverPhone: selectedDriver.phone || '',
       driverVehicleNumber: selectedDriver.vehicleNo || selectedDriver.vehicleNumber || '',
       status: 'assigned',
-      timeline: [...(order.timeline || []), { time: timeNow, text: `Driver Assigned (${selectedDriver.name})` }]
+      timeline: [...(order.timeline || []), { time: timeNow, text: `Driver Assigned: ${selectedDriver.name}` }]
     } : order));
-    setDrivers(prev => prev.map(d => (d.id === driverId || d.driverId === driverId) ? { ...d, status: 'online' } : d));
 
-    const orderToUpdate = orders.find(o => o.id === orderId || o.backendId === orderId);
     const targetId = (orderToUpdate && orderToUpdate.backendId) ? orderToUpdate.backendId : orderId;
 
-    const assignPayload = JSON.stringify({
-      orderId: targetId,
-      bookingId: targetId,
+    // Spec: POST /api/orders/{orderId}/assign
+    const assignPayload = {
       driverId: cleanDriverId,
       driverName: selectedDriver.name,
       driverPhone: selectedDriver.phone || '',
-      driverVehicleNumber: selectedDriver.vehicleNo || selectedDriver.vehicleNumber || '',
-      status: 'assigned'
-    });
+      driverVehicleNumber: selectedDriver.vehicleNo || selectedDriver.vehicleNumber || ''
+    };
 
-    authFetch(`/api/orders/${targetId}/assign`, {
-      method: 'POST',
-      body: assignPayload
-    }).catch(() => null);
+    try {
+      const res = await authFetch(`/api/orders/${targetId}/assign`, {
+        method: 'POST',
+        body: JSON.stringify(assignPayload)
+      });
 
-    authFetch(`/api/bookings/${targetId}/assign`, {
-      method: 'POST',
-      body: assignPayload
-    }).catch(() => null);
+      // Also call booking alias: POST /api/bookings/{bookingId}/assign
+      authFetch(`/api/bookings/${targetId}/assign`, {
+        method: 'POST',
+        body: JSON.stringify(assignPayload)
+      }).catch(() => null);
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.error === 'INSUFFICIENT_WALLET_BALANCE' || res.status === 400) {
+          // Revert optimistic update
+          setOrders(prev => prev.map(order => (order.id === orderId || order.backendId === orderId) ? {
+            ...order, driver: orderToUpdate?.driver || null, status: orderToUpdate?.status || 'pending',
+            timeline: (order.timeline || []).filter(t => !t.text?.startsWith('Driver Assigned:'))
+          } : order));
+          alert(`❌ Cannot Assign Driver: ${errData.message || 'Driver wallet balance is ₹0. Please ask driver to recharge wallet before assigning orders.'}`);
+        }
+        return { success: false, error: errData };
+      }
+
+      // Spec success response: { success, walletBalance, remainingWalletBalance, orderFare, status }
+      const data = await res.json().catch(() => ({}));
+      const serverWalletBal = data.walletBalance ?? data.remainingWalletBalance;
+      if (serverWalletBal != null) {
+        setDrivers(prev => prev.map(d => {
+          if (d.id === driverId || d.driverId === driverId || String(d.id) === cleanDriverId) {
+            const newBal = Number(serverWalletBal);
+            try {
+              localStorage.setItem(`porter_driver_wallet_${d.id}`, newBal);
+              if (d.driverId) localStorage.setItem(`porter_driver_wallet_${d.driverId}`, newBal);
+            } catch (e) {}
+            return { ...d, wallet: newBal, walletBalance: newBal };
+          }
+          return d;
+        }));
+      }
+      return { success: true, data };
+    } catch (err) {
+      console.warn('Assign API error (network):', err);
+      return { success: true };
+    }
   };
 
   const updateOrderStatus = (orderId, newStatus) => {
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setOrders(prev => prev.map(order => order.id === orderId ? {
+    const orderToUpdate = orders.find(o => o.id === orderId || o.backendId === orderId);
+    const orderAmount = Number(orderToUpdate?.amount || orderToUpdate?.totalAmount || 0);
+    const isCompleted = ['completed', 'delivered', 'settled'].includes(newStatus.toLowerCase());
+    const commissionCut = isCompleted ? parseFloat((orderAmount * 0.05).toFixed(2)) : 0;
+    const driverNetEarning = isCompleted ? parseFloat((orderAmount - commissionCut).toFixed(2)) : 0;
+
+    setOrders(prev => prev.map(order => (order.id === orderId || order.backendId === orderId) ? {
       ...order,
       status: newStatus,
-      timeline: [...(order.timeline || []), { time: timeNow, text: `Status updated to ${newStatus.toUpperCase()}` }]
+      timeline: [
+        ...(order.timeline || []),
+        {
+          time: timeNow,
+          text: isCompleted && commissionCut > 0
+            ? `Order ${newStatus.toUpperCase()} — Collected: ₹${orderAmount} | 5% Commission: ₹${commissionCut} | Net: ₹${driverNetEarning}`
+            : `Status updated to ${newStatus.toUpperCase()}`
+        }
+      ]
     } : order));
 
-    const orderToUpdate = orders.find(o => o.id === orderId);
+    // Deduct 5% commission from driver wallet ONLY on Order Completion
+    if (isCompleted && commissionCut > 0 && orderToUpdate?.driver) {
+      const matchedDriver = drivers.find(d =>
+        d.name === orderToUpdate.driver ||
+        String(d.id) === String(orderToUpdate.driverId) ||
+        String(d.driverId) === String(orderToUpdate.driverId)
+      );
+      if (matchedDriver) {
+        setDrivers(prev => prev.map(d => {
+          if (d.id === matchedDriver.id || d.driverId === matchedDriver.driverId) {
+            const currentBal = d.wallet != null ? Number(d.wallet) : 0;
+            const newBal = parseFloat((currentBal - commissionCut).toFixed(2));
+            const updatedStatus = newBal <= 0 ? 'offline' : d.status;
+            try {
+              localStorage.setItem(`porter_driver_wallet_${d.id}`, newBal);
+              if (d.driverId) localStorage.setItem(`porter_driver_wallet_${d.driverId}`, newBal);
+            } catch (e) {}
+            return { ...d, wallet: newBal, walletBalance: newBal, status: updatedStatus };
+          }
+          return d;
+        }));
+      }
+    }
+
     const targetId = (orderToUpdate && orderToUpdate.backendId) ? orderToUpdate.backendId : orderId;
 
-    authFetch(`/api/orders/${targetId}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ status: newStatus })
-    });
+    if (isCompleted) {
+      // Spec: POST /api/orders/{orderId}/complete (with alias /api/driver/orders/{bookingId}/complete)
+      const completePayload = {
+        bookingId: targetId,
+        amount: orderAmount,
+        paymentMethod: orderToUpdate?.paymentMethod || 'CASH',
+        paymentConfirmed: true
+      };
+      authFetch(`/api/orders/${targetId}/complete`, {
+        method: 'POST',
+        body: JSON.stringify(completePayload)
+      }).catch(() => null);
+      authFetch(`/api/driver/orders/${targetId}/confirm-payment`, {
+        method: 'POST',
+        body: JSON.stringify(completePayload)
+      }).catch(() => null);
+    } else {
+      authFetch(`/api/orders/${targetId}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status: newStatus })
+      });
+    }
   };
 
   const approveDriverVerification = (driverId) => {
@@ -1117,16 +1221,129 @@ export const AppStateProvider = ({ children }) => {
     });
   };
 
+  const setDriverVehicleType = (driverId, vehicleType) => {
+    try {
+      localStorage.setItem(`porter_driver_veh_type_${driverId}`, vehicleType);
+    } catch (e) {}
+    setDrivers(prev => prev.map(d => {
+      if (d.id === driverId || d.driverId === driverId) {
+        return { ...d, vehicle: vehicleType, vehicleType: vehicleType };
+      }
+      return d;
+    }));
+  };
+
+  const rechargeDriverWallet = async (driverId, amount, notes = 'Admin Wallet Top-up', paymentReference = '') => {
+    const rechargeAmt = parseFloat(amount);
+    if (isNaN(rechargeAmt) || rechargeAmt <= 0) return { success: false, message: 'Invalid amount' };
+
+    const cleanId = String(driverId).replace(/^DRV-/, '');
+    const payload = {
+      amount: rechargeAmt,
+      notes: notes || 'Admin Wallet Top-up',
+      paymentReference: paymentReference || `PAY_REF_${Date.now()}`
+    };
+
+    try {
+      const res = await authFetch(`/api/drivers/${cleanId}/recharge`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      let newBal = null;
+      let transactionId = null;
+
+      if (res.ok) {
+        const data = await res.json();
+        newBal = data.newWalletBalance != null ? Number(data.newWalletBalance) : null;
+        transactionId = data.transactionId;
+      }
+
+      setDrivers(prev => prev.map(d => {
+        if (d.id === driverId || d.driverId === driverId || String(d.id) === cleanId) {
+          const currentBal = d.wallet != null ? Number(d.wallet) : 0;
+          const calculatedBal = newBal != null ? newBal : parseFloat((currentBal + rechargeAmt).toFixed(2));
+          const updatedStatus = calculatedBal > 0 && (d.status === 'offline' || d.status === 'rejected') ? 'online' : d.status;
+          try {
+            localStorage.setItem(`porter_driver_wallet_${d.id}`, calculatedBal);
+            if (d.driverId) localStorage.setItem(`porter_driver_wallet_${d.driverId}`, calculatedBal);
+            localStorage.setItem(`porter_driver_wallet_${cleanId}`, calculatedBal);
+          } catch (e) {}
+          return { ...d, wallet: calculatedBal, walletBalance: calculatedBal, status: updatedStatus };
+        }
+        return d;
+      }));
+
+      return { success: true, newBalance: newBal, transactionId };
+    } catch (err) {
+      console.warn('Driver recharge error:', err);
+      // Fallback local update
+      setDrivers(prev => prev.map(d => {
+        if (d.id === driverId || d.driverId === driverId || String(d.id) === cleanId) {
+          const currentBal = d.wallet != null ? Number(d.wallet) : 0;
+          const calculatedBal = parseFloat((currentBal + rechargeAmt).toFixed(2));
+          const updatedStatus = calculatedBal > 0 && (d.status === 'offline' || d.status === 'rejected') ? 'online' : d.status;
+          return { ...d, wallet: calculatedBal, walletBalance: calculatedBal, status: updatedStatus };
+        }
+        return d;
+      }));
+      return { success: true };
+    }
+  };
+
+  const getDriverWalletHistory = async (driverId) => {
+    const cleanId = String(driverId).replace(/^DRV-/, '');
+    // Try all spec endpoint aliases:
+    // 1. GET /api/drivers/{driverId}/wallet  (Admin)
+    // 2. GET /api/driver/wallet              (Driver JWT)
+    // 3. GET /api/driver/wallet/transactions (transaction list)
+    const endpoints = [
+      `/api/drivers/${cleanId}/wallet`,
+      `/api/driver/wallet`,
+    ];
+    for (const ep of endpoints) {
+      try {
+        const res = await authFetch(ep);
+        if (res.ok) {
+          const data = await res.json();
+          // Normalize: backend may return `transactions` (spec B) or `recentTransactions`
+          if (data.transactions && !data.recentTransactions) {
+            data.recentTransactions = data.transactions;
+          }
+          // Also map transaction fields to common shape:
+          if (Array.isArray(data.recentTransactions)) {
+            data.recentTransactions = data.recentTransactions.map(tx => ({
+              id: tx.id,
+              type: tx.transactionType || tx.type,
+              amount: tx.amount,
+              orderId: tx.orderId,
+              balanceAfter: tx.balanceAfter,
+              createdAt: tx.createdAt,
+              description: tx.description,
+              status: tx.status,
+              grossAmount: tx.grossAmount,
+              commissionAmount: tx.commissionAmount,
+            }));
+          }
+          return data;
+        }
+      } catch (e) {
+        console.warn(`Error fetching driver wallet from ${ep}:`, e);
+      }
+    }
+    return null;
+  };
+
   return (
     <AppStateContext.Provider value={{
-      user, orders, drivers, payouts, tickets, notifications, driverLocations,
-      customers, vehicles, franchises, settings, usersList, banners, setBanners,
+      user, orders, drivers, payouts, setPayouts, tickets, notifications, driverLocations,
+      customers, vehicles, franchises, cities, adminMetrics, settings, usersList, banners, setBanners,
       handleLogin, handleLogout, handleSignup, verifyOtp, handleForgotPassword, handleResetPassword, assignDriver, updateOrderStatus,
-      approveDriverVerification, rejectDriverVerification, releasePayout,
+      approveDriverVerification, rejectDriverVerification, releasePayout, setDriverVehicleType, rechargeDriverWallet, getDriverWalletHistory,
       sendBroadcastNotification, sendMessageToTicket, resolveTicket, updateTicketStatus,
       darkMode, setDarkMode, markNotificationAsRead, markAllNotificationsAsRead,
       deleteNotification, removeDuplicateNotifications, deleteDriver, deleteVehicle,
-      addCustomerFunds, saveSettingsContext, saveUsersList, bypassLogin
+      addCustomerFunds, saveSettingsContext, saveUsersList, bypassLogin, authFetch, fetchAllData
     }}>
       {children}
     </AppStateContext.Provider>

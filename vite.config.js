@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => {
           target: env.VITE_API_BASE_URL || 'https://api.anushaporter.com',
           changeOrigin: true,
           secure: false,
+        },
+        '/uploads': {
+          target: env.VITE_API_BASE_URL || 'https://api.anushaporter.com',
+          changeOrigin: true,
+          secure: false,
         }
       }
     }

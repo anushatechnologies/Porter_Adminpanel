@@ -14,7 +14,9 @@ import {
   LogOut,
   Building,
   IndianRupee,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ArrowDownCircle,
+  Package
 } from 'lucide-react';
 import { AppStateContext } from '../../context/AppState';
 
@@ -26,6 +28,7 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
   const menuItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, category: 'Main' },
     { id: 'orders', name: 'Orders', icon: ShoppingBag, category: 'Management' },
+    { id: 'packers-movers', name: 'Packers & Movers', icon: Package, category: 'Management' },
     { id: 'drivers', name: 'Drivers', icon: Truck, category: 'Management' },
     { id: 'vehicles', name: 'Vehicles', icon: Car, category: 'Management' },
     { id: 'services', name: 'Our Services', icon: Layers, category: 'Management' },

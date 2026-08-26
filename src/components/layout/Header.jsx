@@ -71,6 +71,12 @@ export default function Header({ activeTab, collapsed, setCollapsed, setActiveTa
         }[subTab] || 'System Settings';
         return ['Settings', 'Settings', subTabName];
       }
+      case 'services':
+        return ['Management', 'Our Services'];
+      case 'pricing':
+        return ['Settings', 'Pricing Engine'];
+      case 'banners':
+        return ['Settings', 'Banners'];
       default:
         return ['Console', 'Admin'];
     }
@@ -89,6 +95,9 @@ export default function Header({ activeTab, collapsed, setCollapsed, setActiveTa
       case 'notifications': return 'System Notifications';
       case 'franchise': return 'Franchise Partners';
       case 'settings': return 'System Settings';
+      case 'services': return 'Our Services';
+      case 'pricing': return 'Pricing Engine';
+      case 'banners': return 'Banners Manager';
       default: return 'Admin Console';
     }
   };

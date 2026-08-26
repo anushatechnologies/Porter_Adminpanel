@@ -253,7 +253,7 @@ a {
   transition: left var(--transition-normal);
 }
 
-.sidebar.collapsed+.app-content-wrapper .header {
+.sidebar.collapsed ~ .app-content-wrapper .header {
   left: 70px;
 }
 
@@ -387,6 +387,8 @@ a {
   margin-left: var(--sidebar-width);
   padding-top: var(--header-height);
   flex: 1;
+  min-width: 0; /* Critical: prevents flex child from overflowing and hiding table columns */
+  overflow-x: hidden;
   background-color: var(--bg-main);
   min-height: 100vh;
   transition: margin-left var(--transition-normal);
@@ -394,7 +396,7 @@ a {
   flex-direction: column;
 }
 
-.sidebar.collapsed+.app-content-wrapper {
+.sidebar.collapsed ~ .app-content-wrapper {
   margin-left: 70px;
 }
 
@@ -556,7 +558,8 @@ a {
   background-color: var(--bg-card);
   border-radius: 12px;
   border: 1px solid var(--border-color);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
@@ -617,23 +620,26 @@ a {
 
 .custom-table {
   width: 100%;
+  min-width: 760px; /* Minimum to keep columns readable; allows 986px viewport to fit without scroll */
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .custom-table th {
   background-color: #F8FAFC;
   color: var(--text-muted);
   font-weight: 600;
-  padding: 14px 20px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 
 .custom-table td {
-  padding: 14px 20px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-main);
+  white-space: nowrap;
 }
 
 .custom-table tr:last-child td {
@@ -2778,4 +2784,136 @@ body.dark .btn-discard {
   background: #0F172A;
   border-color: #334155;
   color: #94A3B8;
+}
+
+/* ==========================================================================
+   General Responsive Styles (Media Queries)
+   ========================================================================== */
+
+/* Tablet & Smaller Screens */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 70px; /* Force collapsed sidebar on tablet */
+  }
+
+  .sidebar {
+    width: 70px !important;
+  }
+
+  /* Hide sidebar texts on tablet */
+  .sidebar .sidebar-logo span,
+  .sidebar .sidebar-logo,
+  .sidebar .sidebar-link span:not(.badge-count),
+  .sidebar .sidebar-group-title,
+  .sidebar .sidebar-footer-info {
+    display: none !important;
+  }
+
+  /* Hide footer logout button on compact forced tablet layout to prevent overflow overlap */
+  .sidebar .sidebar-footer button {
+    display: none !important;
+  }
+
+  .sidebar .sidebar-brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar .sidebar-footer {
+    justify-content: center;
+    padding: 16px 0;
+  }
+
+  .header {
+    left: 70px !important;
+    padding: 0 16px;
+  }
+
+  .app-content-wrapper {
+    margin-left: 70px !important;
+  }
+
+  .page-content {
+    padding: 16px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .dashboard-row,
+  .dashboard-row-equal {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  .custom-table {
+    min-width: 800px; /* Allow table horizontal scroll instead of squishing columns */
+  }
+}
+
+/* Mobile Screens */
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 0px; /* Hide sidebar on mobile, slideable active overlay */
+  }
+
+  .sidebar {
+    transform: translateX(-100%);
+    width: 260px !important;
+    transition: transform var(--transition-normal);
+  }
+
+  .sidebar.active {
+    transform: translateX(0);
+  }
+
+  .header {
+    left: 0 !important;
+  }
+
+  .app-content-wrapper {
+    margin-left: 0 !important;
+  }
+
+  .header-search {
+    display: none; /* Hide header search on mobile */
+  }
+
+  .header-profile-name {
+    display: none; /* Hide name on small headers */
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Modals responsiveness */
+  .modal-container {
+    width: 95% !important;
+    max-width: 95% !important;
+    max-height: 90vh;
+  }
+
+  .modal-body {
+    padding: 16px !important;
+    max-height: 60vh;
+  }
+
+  .modal-footer {
+    padding: 12px 16px;
+  }
+
+  /* Dynamic Grids inside form/modals (stack inputs vertically) */
+  .modal-body form div[style*="grid-template-columns"],
+  .modal-body div[style*="grid-template-columns"],
+  .modal-body div[style*="display: grid"] {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
 }

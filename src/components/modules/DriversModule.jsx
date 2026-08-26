@@ -3,7 +3,7 @@ import { Eye, Check, X, ShieldAlert, Phone, Truck, Star, Award, Wallet, Calendar
 import { AppStateContext } from '../../context/AppState';
 
 export default function DriversModule() {
-  const { drivers, orders, vehicles, approveDriverVerification, rejectDriverVerification, deleteDriver } = useContext(AppStateContext);
+  const { drivers, orders, vehicles, approveDriverVerification, rejectDriverVerification, deleteDriver, rechargeDriverWallet, getDriverWalletHistory } = useContext(AppStateContext);
 
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem('porter_drivers_active_tab') || 'all';
@@ -16,6 +16,29 @@ export default function DriversModule() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [detailTab, setDetailTab] = useState('overview'); // overview, trips, docs, earnings
+
+  // Live Wallet & Transaction Ledger State
+  const [driverWalletLedger, setDriverWalletLedger] = useState(null);
+  const [loadingLedger, setLoadingLedger] = useState(false);
+
+  // Recharge Modal State
+  const [rechargeModalDriver, setRechargeModalDriver] = useState(null);
+  const [rechargeAmount, setRechargeAmount] = useState('500');
+  const [rechargeNotes, setRechargeNotes] = useState('Admin Wallet Top-up');
+  const [rechargeRef, setRechargeRef] = useState('');
+  const [rechargeProcessing, setRechargeProcessing] = useState(false);
+
+  // Fetch wallet history when earnings/wallet tab is selected
+  useEffect(() => {
+    if (selectedDriver && detailTab === 'earnings' && getDriverWalletHistory) {
+      setLoadingLedger(true);
+      getDriverWalletHistory(selectedDriver.id || selectedDriver.driverId)
+        .then(data => {
+          if (data) setDriverWalletLedger(data);
+        })
+        .finally(() => setLoadingLedger(false));
+    }
+  }, [selectedDriver, detailTab]);
 
   // Filter drivers
   const filteredDrivers = drivers.filter(driver => {
@@ -95,6 +118,29 @@ export default function DriversModule() {
           </div>
         </div>
 
+        {/* Commission Policy & Wallet Header Notice */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#2563EB', fontWeight: '700' }}>
+              ⚡ 5% Platform Commission
+            </span>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Drivers require <strong>Wallet &gt; ₹0</strong> to appear on the Order Assignment list. 5% commission cut applies per trip.
+            </span>
+          </div>
+
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            Total Fleet Available Balance: {(() => {
+              const total = drivers.reduce((sum, d) => sum + (d.walletBalance != null ? Number(d.walletBalance) : (Number(d.wallet) || 0)), 0);
+              return (
+                <strong style={{ color: total >= 0 ? '#059669' : '#DC2626' }}>
+                  {total < 0 ? `-₹${Math.abs(total).toFixed(2)}` : `₹${total.toFixed(2)}`}
+                </strong>
+              );
+            })()}
+          </div>
+        </div>
+
         {/* Table list */}
         <table className="custom-table">
           <thead>
@@ -103,10 +149,11 @@ export default function DriversModule() {
               <th>Phone</th>
               <th>Vehicle Type</th>
               <th>Plate Number</th>
+              <th>Available Wallet Balance</th>
               <th>Status</th>
               <th>Trips</th>
               <th>Rating</th>
-              <th>Actions</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -134,6 +181,28 @@ export default function DriversModule() {
                   <td>{driver.vehicleType || driver.vehicle || 'N/A'}</td>
                   <td>{driver.vehicleNo}</td>
                   <td>
+                    {(() => {
+                      const bal = driver.walletBalance != null ? Number(driver.walletBalance) : (Number(driver.wallet) || 0);
+                      const isPositive = bal > 0;
+                      const formatted = bal < 0 
+                        ? `-₹${Math.abs(bal).toFixed(2)}`
+                        : `₹${bal.toFixed(2)}`;
+
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontWeight: '700', color: isPositive ? '#059669' : '#DC2626', fontSize: '13px' }}>
+                            {formatted}
+                          </span>
+                          {!isPositive && (
+                            <span className="badge" style={{ backgroundColor: '#FEE2E2', color: '#DC2626', fontSize: '10px', padding: '2px 6px', fontWeight: '700' }}>
+                              {bal < 0 ? 'Negative (Recharge Required)' : '₹0 (Hidden from Assign)'}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td>
                     <span className={`badge ${getStatusClass(driver.status)}`}>
                       {getStatusText(driver.status)}
                     </span>
@@ -141,11 +210,24 @@ export default function DriversModule() {
                   <td>{driver.trips}</td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
-                      <Star size={14} fill="#F59E0B" color="#F59E0B" /> {driver.rating > 0 ? driver.rating : 'N/A'}
+                      <Star size={14} fill="#F59E0B" color="#F59E0B" /> {driver.rating > 0 ? parseFloat(driver.rating).toFixed(1) : 'N/A'}
                     </div>
                   </td>
-                  <td>
-                    <div className="action-row">
+                  <td style={{ textAlign: 'right' }}>
+                    <div className="action-row" style={{ justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="action-btn"
+                        style={{ color: '#2563EB', backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', padding: '4px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}
+                        title="Recharge Driver Wallet"
+                        onClick={() => {
+                          setRechargeModalDriver(driver);
+                          setRechargeAmount('500');
+                        }}
+                      >
+                        <Wallet size={14} /> Recharge
+                      </button>
+
                       <button
                         className="action-btn btn-view"
                         title="View Details"
@@ -236,20 +318,28 @@ export default function DriversModule() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                    <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                    <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Rating</div>
-                      <div style={{ fontSize: '18px', fontWeight: '700', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                        <Star size={16} fill="#F59E0B" color="#F59E0B" /> {selectedDriver.rating > 0 ? selectedDriver.rating : 'N/A'}
+                      <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                        <Star size={15} fill="#F59E0B" color="#F59E0B" /> {selectedDriver.rating > 0 ? parseFloat(selectedDriver.rating).toFixed(1) : 'N/A'}
                       </div>
                     </div>
-                    <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
+                    <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Trips Completed</div>
-                      <div style={{ fontSize: '18px', fontWeight: '700', marginTop: '4px' }}>{selectedDriver.trips || 0}</div>
+                      <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px' }}>{selectedDriver.trips || 0}</div>
                     </div>
-                    <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total Earnings</div>
-                      <div style={{ fontSize: '18px', fontWeight: '700', marginTop: '4px' }}>₹{(selectedDriver.earnings || 0).toLocaleString()}</div>
+                    <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Wallet Balance</div>
+                      <div style={{ fontSize: '16px', fontWeight: '800', marginTop: '4px', color: (selectedDriver.walletBalance || selectedDriver.wallet || 0) > 0 ? '#059669' : '#DC2626' }}>
+                        ₹{(selectedDriver.walletBalance || selectedDriver.wallet || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Trip Earnings</div>
+                      <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px', color: '#2563EB' }}>
+                        ₹{(selectedDriver.earnings || 0).toLocaleString()}
+                      </div>
                     </div>
                   </div>
 
@@ -263,11 +353,85 @@ export default function DriversModule() {
                         </tr>
                         <tr>
                           <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>License Plate</td>
-                          <td>{selectedDriver.vehicleNo}</td>
+                          <td>{selectedDriver.vehicleNo || 'N/A'}</td>
                         </tr>
                         <tr>
                           <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Onboarding Date</td>
-                          <td>2026-02-14</td>
+                          <td>{selectedDriver.createdAt ? new Date(selectedDriver.createdAt).toLocaleDateString() : '2026-02-14'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Address Details */}
+                  <div>
+                    <h4 style={{ fontSize: '14px', marginBottom: '8px', marginTop: '16px' }}>Address Details</h4>
+                    <table className="custom-table" style={{ border: '1px solid var(--border-color)' }}>
+                      <tbody>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '30%' }}>Email</td>
+                          <td>{selectedDriver.email || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Full Address</td>
+                          <td style={{ whiteSpace: 'normal' }}>{selectedDriver.addressLine1 || selectedDriver.address || selectedDriver.homeAddress || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>City</td>
+                          <td>{selectedDriver.city || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>State</td>
+                          <td>{selectedDriver.state || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Pincode</td>
+                          <td>{selectedDriver.pincode || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Additional KYC Info */}
+                  <div>
+                    <h4 style={{ fontSize: '14px', marginBottom: '8px', marginTop: '16px' }}>Identity & Bank Details</h4>
+                    <table className="custom-table" style={{ border: '1px solid var(--border-color)' }}>
+                      <tbody>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '30%' }}>Date of Birth</td>
+                          <td>{selectedDriver.dob || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Gender</td>
+                          <td>{selectedDriver.gender || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Aadhaar Number</td>
+                          <td>{selectedDriver.aadhaarNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>License Number</td>
+                          <td>{selectedDriver.licenseNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>RC Number</td>
+                          <td>{selectedDriver.rcNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Bank Name</td>
+                          <td>{selectedDriver.bankName || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Account Holder</td>
+                          <td>{selectedDriver.accountHolderName || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Account Number</td>
+                          <td>{selectedDriver.accountNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>IFSC Code</td>
+                          <td>{selectedDriver.ifscCode || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -419,53 +583,265 @@ export default function DriversModule() {
                 </div>
               )}
 
-              {detailTab === 'earnings' && (
-                <div className="tab-pane">
-                  <div className="dashboard-card" style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', backgroundColor: 'var(--surface)', padding: '16px', borderRadius: '8px', marginBottom: '24px', border: '1px solid var(--border-color)' }}>
-                    <div className="stat-icon" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', width: '48px', height: '48px' }}>
-                      <Wallet size={24} />
-                    </div>
-                    <div>
-                      <h4 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: '600' }}>Payout Settlement Overview</h4>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Wallet ledger and pending cash collections.</p>
-                    </div>
-                  </div>
+              {detailTab === 'earnings' && (() => {
+                const recentTxns = driverWalletLedger?.recentTransactions || [];
+                const totalRecharges = recentTxns.filter(t => t.type === 'RECHARGE').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                const totalTripEarnings = recentTxns.filter(t => t.type === 'ORDER_EARNING').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                const totalCommissionDeductions = recentTxns.filter(t => t.type === 'COMMISSION_DEDUCTION').reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+                const currentBal = selectedDriver.walletBalance != null ? Number(selectedDriver.walletBalance) : (Number(selectedDriver.wallet) || 0);
 
-                  {(() => {
-                    const vehicleMatch = vehicles?.find(v => v.vehicleId === selectedDriver.vehicleType || v.name === selectedDriver.vehicle);
-                    const commPct = vehicleMatch?.commissionPercentage != null ? vehicleMatch.commissionPercentage : 5.0;
-                    const adminCut = Math.round(selectedDriver.earnings * (commPct / 100));
-                    const driverBalance = selectedDriver.earnings - adminCut;
-                    return (
-                      <table className="custom-table" style={{ border: '1px solid var(--border-color)' }}>
+                return (
+                  <div className="tab-pane">
+                    <div className="dashboard-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--surface)', padding: '16px 20px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div className="stat-icon" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', width: '48px', height: '48px' }}>
+                          <Wallet size={24} />
+                        </div>
+                        <div>
+                          <h4 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '700' }}>Driver Wallet & Earnings Account</h4>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                            Current Available Balance: <strong style={{ color: currentBal > 0 ? '#059669' : '#DC2626', fontSize: '14px' }}>₹{currentBal.toLocaleString()}</strong>
+                            {currentBal > 0 ? (
+                              <span className="badge" style={{ backgroundColor: '#DCFCE7', color: '#15803D', marginLeft: '8px', fontSize: '10px', fontWeight: '700' }}>● Eligible for Orders</span>
+                            ) : (
+                              <span className="badge" style={{ backgroundColor: '#FEE2E2', color: '#DC2626', marginLeft: '8px', fontSize: '10px', fontWeight: '700' }}>● Recharge Needed (Hidden from Assign)</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+                        onClick={() => {
+                          setRechargeModalDriver(selectedDriver);
+                          setRechargeAmount('500');
+                          setRechargeRef(`PAY_REF_${Date.now()}`);
+                        }}
+                      >
+                        <Wallet size={15} /> + Recharge Driver Wallet
+                      </button>
+                    </div>
+
+                    {/* Breakdown Summary Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Current Balance</div>
+                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: currentBal > 0 ? '#059669' : '#DC2626' }}>₹{currentBal.toLocaleString()}</div>
+                      </div>
+                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Admin Recharges</div>
+                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: '#2563EB' }}>+₹{totalRecharges.toLocaleString()}</div>
+                      </div>
+                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Trip Earnings Credited</div>
+                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: '#059669' }}>+₹{totalTripEarnings.toLocaleString()}</div>
+                      </div>
+                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>5% Platform Fees</div>
+                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: '#DC2626' }}>-₹{totalCommissionDeductions.toLocaleString()}</div>
+                      </div>
+                    </div>
+
+                    {/* Breakdown Formula Notice */}
+                    <div style={{ padding: '10px 14px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: '16px', fontSize: '11px', color: '#1E40AF', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>💡</span>
+                      <span><strong>Wallet Breakdown:</strong> Balance (₹{currentBal.toLocaleString()}) = Admin Recharges (+₹{totalRecharges.toLocaleString()}) + Trip Earnings (+₹{totalTripEarnings.toLocaleString()}) - 5% Platform Fees (-₹{totalCommissionDeductions.toLocaleString()}).</span>
+                    </div>
+
+                    {/* Real Transaction Ledger from GET /api/drivers/{id}/wallet */}
+                    <h4 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <ListFilter size={16} color="var(--primary)" /> Wallet Transaction History & Commission Ledger
+                    </h4>
+
+                    {loadingLedger ? (
+                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading live wallet ledger...</div>
+                    ) : recentTxns.length > 0 ? (
+                      <table className="custom-table" style={{ border: '1px solid var(--border-color)', fontSize: '12px' }}>
+                        <thead>
+                          <tr>
+                            <th>Txn ID</th>
+                            <th>Transaction Type</th>
+                            <th>Amount</th>
+                            <th>Order Ref</th>
+                            <th>Balance After</th>
+                            <th>Date & Time</th>
+                          </tr>
+                        </thead>
                         <tbody>
-                          <tr>
-                            <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '40%' }}>Total Partner Earnings</td>
-                            <td style={{ fontWeight: '700' }}>₹{selectedDriver.earnings.toLocaleString()}</td>
-                          </tr>
-                          <tr>
-                            <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Admin Commission ({commPct}%)</td>
-                            <td>₹{adminCut.toLocaleString()}</td>
-                          </tr>
-                          <tr>
-                            <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Pending Cash collection</td>
-                            <td>₹0</td>
-                          </tr>
-                          <tr>
-                            <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Current Balance</td>
-                            <td style={{ color: '#10B981', fontWeight: '700' }}>₹{driverBalance.toLocaleString()}</td>
-                          </tr>
+                          {recentTxns.map(tx => {
+                            const isRecharge = tx.type === 'RECHARGE';
+                            const isEarning = tx.type === 'ORDER_EARNING';
+                            const isCommission = tx.type === 'COMMISSION_DEDUCTION';
+
+                            const badgeBg = isRecharge ? '#EFF6FF' : isEarning ? '#DCFCE7' : isCommission ? '#FEF2F2' : '#F1F5F9';
+                            const badgeColor = isRecharge ? '#2563EB' : isEarning ? '#15803D' : isCommission ? '#DC2626' : 'var(--text-main)';
+                            const label = isRecharge ? '💰 Admin Recharge' : isEarning ? '🚚 Trip Fare Credited' : isCommission ? '⚡ 5% Platform Fee' : tx.type;
+
+                            return (
+                              <tr key={tx.id}>
+                                <td><code>{tx.id}</code></td>
+                                <td>
+                                  <span className="badge" style={{
+                                    backgroundColor: badgeBg,
+                                    color: badgeColor,
+                                    fontSize: '11px',
+                                    fontWeight: '700'
+                                  }}>
+                                    {label}
+                                  </span>
+                                </td>
+                                <td style={{ fontWeight: '700', color: tx.amount > 0 ? '#059669' : '#DC2626' }}>
+                                  {tx.amount > 0 ? `+₹${tx.amount.toLocaleString()}` : `-₹${Math.abs(tx.amount).toLocaleString()}`}
+                                </td>
+                                <td>{tx.orderId ? <code>#{tx.orderId}</code> : '—'}</td>
+                                <td style={{ fontWeight: '700' }}>₹{tx.balanceAfter != null ? tx.balanceAfter.toLocaleString() : '—'}</td>
+                                <td style={{ color: 'var(--text-muted)' }}>{tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '—'}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
-                    );
-                  })()}
-                </div>
-              )}
+                    ) : (
+                      <div style={{ padding: '20px', textAlign: 'center', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        No wallet transactions recorded yet for this driver. Click <strong>+ Recharge Driver Wallet</strong> to add funds.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setSelectedDriver(null)}>Close</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recharge Driver Wallet Modal */}
+      {rechargeModalDriver && (
+        <div className="modal-backdrop" onClick={() => !rechargeProcessing && setRechargeModalDriver(null)}>
+          <div className="modal-container" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Wallet size={18} />
+                </div>
+                <h3 className="modal-title" style={{ margin: 0 }}>Recharge Driver Wallet</h3>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={() => !rechargeProcessing && setRechargeModalDriver(null)}><X size={20} /></button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const amt = parseFloat(rechargeAmount);
+                if (isNaN(amt) || amt <= 0) {
+                  alert('Please enter a valid recharge amount (> ₹0).');
+                  return;
+                }
+                setRechargeProcessing(true);
+                const res = await rechargeDriverWallet(rechargeModalDriver.id || rechargeModalDriver.driverId, amt, rechargeNotes, rechargeRef);
+                setRechargeProcessing(false);
+                if (res?.success) {
+                  const txnMsg = res.transactionId ? `\nTransaction ID: ${res.transactionId}` : '';
+                  const balMsg = res.newBalance != null ? `\nNew Wallet Balance: ₹${res.newBalance.toLocaleString()}` : '';
+                  alert(`✅ Wallet recharged successfully with ₹${amt.toLocaleString()} for ${rechargeModalDriver.name}!${balMsg}${txnMsg}`);
+                  setRechargeModalDriver(null);
+                  if (selectedDriver && getDriverWalletHistory) {
+                    getDriverWalletHistory(selectedDriver.id || selectedDriver.driverId).then(d => d && setDriverWalletLedger(d));
+                  }
+                } else {
+                  alert(`Recharge failed: ${res?.message || res?.error || 'Server error'}`);
+                }
+              }}
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+            >
+              <div style={{ padding: '12px 14px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px' }}>{rechargeModalDriver.name}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>ID: {rechargeModalDriver.driverId || rechargeModalDriver.id} • {rechargeModalDriver.phone}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Current Wallet</div>
+                  <div style={{ fontSize: '15px', fontWeight: '800', color: (rechargeModalDriver.wallet || 0) > 0 ? '#059669' : '#DC2626' }}>
+                    ₹{(rechargeModalDriver.wallet || 0).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>Select Quick Amount (₹)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '10px' }}>
+                  {['100', '500', '1000', '2000'].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      className="btn"
+                      style={{
+                        backgroundColor: rechargeAmount === val ? 'var(--primary)' : 'var(--bg-main)',
+                        color: rechargeAmount === val ? '#FFF' : 'var(--text-main)',
+                        border: '1px solid var(--border-color)',
+                        fontWeight: '700',
+                        fontSize: '13px',
+                        padding: '8px 0'
+                      }}
+                      onClick={() => setRechargeAmount(val)}
+                    >
+                      ₹{val}
+                    </button>
+                  ))}
+                </div>
+
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>Custom Recharge Amount (₹) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  value={rechargeAmount}
+                  onChange={(e) => setRechargeAmount(e.target.value)}
+                  placeholder="Enter recharge amount..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>Recharge Reference / Note</label>
+                <input
+                  type="text"
+                  value={rechargeNotes}
+                  onChange={(e) => setRechargeNotes(e.target.value)}
+                  placeholder="e.g. UPI / Cash Payment Received"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px' }}
+                />
+              </div>
+
+              <div style={{ padding: '10px 12px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', fontSize: '11px', color: '#2563EB' }}>
+                ⚡ Recharging driver wallet enables them to appear on the <strong>Order Assignment List</strong>. 5% platform commission cut applies automatically per trip.
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setRechargeModalDriver(null)}
+                  disabled={rechargeProcessing}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={rechargeProcessing}
+                >
+                  {rechargeProcessing ? 'Processing...' : 'Confirm Wallet Recharge'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

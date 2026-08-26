@@ -4,39 +4,6 @@ import VehicleSelector from './pricing/VehicleSelector';
 import PricingConfigForm from './pricing/PricingConfigForm';
 import ToastProvider, { useToast } from './pricing/ToastNotification';
 
-// ─── localStorage helpers ───────────────────────────────────────────────────
-const LS_KEY = 'porter_pricing_config';
-
-const loadLocalPricing = () => {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-};
-
-const saveLocalPricing = (vehicleId, payload) => {
-  try {
-    const existing = loadLocalPricing();
-    existing[vehicleId] = { ...payload, _savedAt: new Date().toISOString() };
-    localStorage.setItem(LS_KEY, JSON.stringify(existing));
-  } catch (e) {
-    console.error('localStorage write failed:', e);
-  }
-};
-
-const removeLocalPricing = (vehicleId) => {
-  try {
-    const existing = loadLocalPricing();
-    delete existing[vehicleId];
-    localStorage.setItem(LS_KEY, JSON.stringify(existing));
-  } catch (e) {
-    console.error('localStorage delete failed:', e);
-  }
-};
-// ─────────────────────────────────────────────────────────────────────────────
-
 const PricingManagementContent = () => {
   const { addToast } = useToast();
   const [vehicles, setVehicles] = useState([]);
@@ -46,7 +13,14 @@ const PricingManagementContent = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDirty, setIsDirty] = useState(false);
 
-  // Fetch vehicles list from backend
+  // Clear legacy pricing local storage on mount
+  useEffect(() => {
+    try {
+      localStorage.removeItem('porter_pricing_config');
+    } catch (e) {}
+  }, []);
+
+  // Fetch vehicles list directly from backend
   const fetchVehicles = async () => {
     setLoading(true);
     try {
@@ -56,20 +30,12 @@ const PricingManagementContent = () => {
         data = [];
       }
       
-      // Merge with any locally-saved pricing overrides
-      const localData = loadLocalPricing();
-      const merged = data.map(v => {
-        const localKey = v.vehicleId || v.id;
-        return localData[localKey] ? { ...v, ...localData[localKey] } : v;
-      });
-      setVehicles(merged);
-      setSelectedVehicle(merged.length > 0 ? merged[0] : null);
+      setVehicles(data);
+      setSelectedVehicle(data.length > 0 ? data[0] : null);
     } catch (error) {
       console.error('Error fetching vehicles:', error);
-      const localData = loadLocalPricing();
-      const localVehicles = Object.values(localData);
-      setVehicles(localVehicles);
-      setSelectedVehicle(localVehicles[0] || null);
+      setVehicles([]);
+      setSelectedVehicle(null);
     } finally {
       setLoading(false);
     }
@@ -203,25 +169,18 @@ const PricingManagementContent = () => {
         const serverVehicle = responseData?.vehicle || responseData || {};
         const finalMerged = { ...pricingPayload, ...apiPayload, ...serverVehicle };
 
-        addToast('Pricing configuration saved successfully! End-to-end backend & user app updated.', 'success');
+        addToast('Pricing configuration saved successfully! End-to-end backend updated.', 'success');
         setVehicles(prev => prev.map(v => (v.id === pricingPayload.id || v.vehicleId === vId) ? finalMerged : v));
         setSelectedVehicle(finalMerged);
-        saveLocalPricing(vId, finalMerged);
         setIsDirty(false);
       } else {
         const errText = await res.text().catch(() => '');
         console.error('Pricing API save failed:', res.status, errText);
-        addToast(`Server returned status ${res.status} — saved to local cache.`, 'warning');
-        setVehicles(prev => prev.map(v => (v.id === pricingPayload.id || v.vehicleId === vId) ? { ...v, ...apiPayload } : v));
-        setSelectedVehicle(prev => ({ ...prev, ...apiPayload }));
-        setIsDirty(false);
+        addToast(`Server returned status ${res.status}.`, 'error');
       }
     } catch (err) {
       console.error('Error saving pricing (network):', err);
-      addToast('Network error — saved to local cache. Changes will persist.', 'warning');
-      setVehicles(prev => prev.map(v => (v.id === pricingPayload.id || v.vehicleId === vId) ? { ...v, ...apiPayload } : v));
-      setSelectedVehicle(prev => ({ ...prev, ...apiPayload }));
-      setIsDirty(false);
+      addToast('Network error while saving pricing.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -232,10 +191,6 @@ const PricingManagementContent = () => {
     const targetVehicle = vehicles.find(v => v.id === id || v.vehicleId === id);
     const vId = targetVehicle?.vehicleId || id;
 
-    // Remove from localStorage
-    removeLocalPricing(vId);
-    removeLocalPricing(id);
-
     try {
       let res = await fetch(`/api/pricing/${vId}`, { method: 'DELETE', headers: getAuthHeaders() });
       if (!res.ok) {
@@ -245,11 +200,11 @@ const PricingManagementContent = () => {
       if (res.ok || res.status === 404) {
         addToast('Vehicle pricing deleted successfully from backend!', 'success');
       } else {
-        addToast(`Delete warning (${res.status}) — removed locally.`, 'warning');
+        addToast(`Delete warning (${res.status}) from backend.`, 'warning');
       }
     } catch (err) {
       console.error('Delete pricing error (network):', err);
-      addToast('Network error — removed vehicle pricing locally.', 'warning');
+      addToast('Network error while deleting pricing.', 'error');
     } finally {
       const remaining = vehicles.filter(v => v.id !== id && v.vehicleId !== vId);
       setVehicles(remaining);

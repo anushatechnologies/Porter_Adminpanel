@@ -142,7 +142,7 @@ export default function SettingsModule() {
 
             <div className="form-group">
               <label>Service Coverage Cities (Comma separated)</label>
-              <textarea name="coverageCities" defaultValue={settings?.coverageCities || "Hyderabad, Vijayawada, Guntur, Warangal, Visakhapatnam"} rows="2"></textarea>
+              <textarea name="coverageCities" defaultValue={settings?.coverageCities || "Hyderabad"} rows="2" placeholder="e.g. Hyderabad"></textarea>
             </div>
 
             {success && <div style={{ color: '#10B981', fontSize: '13px', fontWeight: '600' }}>✓ General settings saved successfully.</div>}

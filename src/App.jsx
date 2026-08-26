@@ -18,6 +18,7 @@ import SettingsModule from './components/modules/SettingsModule';
 import PricingManagement from './components/modules/PricingManagement';
 import BannersModule from './components/modules/BannersModule';
 import PrivacyPolicy from './components/public/PrivacyPolicy';
+import PackersMoversModule from './components/modules/packers-movers/PackersMoversModule';
 
 const getStateFromURL = () => {
   const path = window.location.pathname;
@@ -37,7 +38,8 @@ const getStateFromURL = () => {
   let mainTab = 'dashboard';
   if (mainSeg === 'dashboard') mainTab = 'dashboard';
   else if (mainSeg === 'orders') mainTab = 'orders';
-  else if (mainSeg === 'drivers') mainTab = 'drivers';
+  else if (mainSeg === 'packers-movers' || mainSeg === 'pm' || mainSeg === 'movers') mainTab = 'packers-movers';
+  else if (mainSeg === 'drivers' || mainSeg === 'withdrawals' || mainSeg === 'payouts') mainTab = 'drivers';
   else if (mainSeg === 'vehicles') mainTab = 'vehicles';
   else if (mainSeg === 'services') mainTab = 'services';
   else if (mainSeg === 'customers') mainTab = 'customers';
@@ -98,6 +100,9 @@ const updateURLFromState = (mainTab) => {
     case 'dashboard':
       path = '/admin/dashboard';
       break;
+    case 'packers-movers':
+      path = '/admin/packers-movers';
+      break;
     case 'orders': {
       const sub = localStorage.getItem('porter_orders_active_tab') || 'all';
       if (sub === 'all') path = '/admin/orders';
@@ -148,15 +153,18 @@ const updateURLFromState = (mainTab) => {
       break;
     case 'settings': {
       const sub = localStorage.getItem('porter_settings_active_tab') || 'general';
-      const subPath = {
-        general: 'general',
-        pricing: 'pricing',
-        users: 'backoffice-users',
-        roles: 'roles',
-        keys: 'keys',
-        legal: 'legal'
-      }[sub] || 'general';
-      path = `/admin/settings/${subPath}`;
+      if (sub === 'general') path = '/admin/settings';
+      else {
+        const urlSeg = {
+          'general': 'general',
+          'pricing': 'pricing',
+          'users': 'backoffice-users',
+          'roles': 'roles',
+          'keys': 'keys',
+          'legal': 'legal'
+        }[sub] || 'general';
+        path = `/admin/settings/${urlSeg}`;
+      }
       break;
     }
     default:
@@ -232,12 +240,13 @@ function AppContent() {
         <main className="page-content">
           {activeTab === 'dashboard' && <DashboardHome setActiveTab={setActiveTab} />}
           {activeTab === 'orders' && <OrdersModule />}
+          {activeTab === 'packers-movers' && <PackersMoversModule />}
           {activeTab === 'drivers' && <DriversModule />}
           {activeTab === 'vehicles' && <VehiclesModule />}
           {activeTab === 'services' && <ServicesModule />}
           {activeTab === 'customers' && <CustomersModule />}
           {activeTab === 'tracking' && <LiveTracking />}
-          {activeTab === 'finance' && <FinanceModule />}
+          {activeTab === 'finance' && <FinanceModule setActiveTab={setActiveTab} />}
           {activeTab === 'support' && <SupportModule />}
           {activeTab === 'notifications' && <NotificationsModule />}
           {activeTab === 'franchise' && <FranchiseModule />}

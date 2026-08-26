@@ -28,19 +28,19 @@ import {
 } from 'recharts';
 
 export default function DashboardHome({ setActiveTab }) {
-  const { orders, drivers, payouts, darkMode } = useContext(AppStateContext);
+  const { orders, drivers, payouts, adminMetrics, darkMode } = useContext(AppStateContext);
 
   const [ordersFilter, setOrdersFilter] = useState('Weekly');
   const [revenueFilter, setRevenueFilter] = useState('Weekly');
 
-  const totalOrdersVal = orders.length;
-  const activeOrdersCount = orders.filter(o => ['pending', 'assigned', 'transit'].includes(o.status)).length;
+  const totalOrdersVal = adminMetrics?.totalOrdersToday !== undefined ? adminMetrics.totalOrdersToday : orders.length;
+  const activeOrdersCount = adminMetrics?.activeOrders !== undefined ? adminMetrics.activeOrders : orders.filter(o => ['pending', 'assigned', 'transit'].includes(o.status)).length;
   const completedOrdersCount = orders.filter(o => o.status === 'completed').length;
-  const onlineDriversCount = drivers.filter(d => d.status === 'online').length;
+  const onlineDriversCount = adminMetrics?.totalDrivers !== undefined ? adminMetrics.totalDrivers : drivers.filter(d => d.status === 'online').length;
 
-  const revenueTodaySum = orders
-    .filter(o => o.status === 'completed')
-    .reduce((sum, o) => sum + o.amount, 0);
+  const revenueTodaySum = adminMetrics?.revenueToday !== undefined
+    ? adminMetrics.revenueToday
+    : orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.amount || 0), 0);
 
   const pendingPayoutsSum = payouts
     .filter(p => p.status === 'pending')

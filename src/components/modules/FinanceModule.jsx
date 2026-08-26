@@ -12,7 +12,7 @@ import {
   Legend
 } from 'recharts';
 
-export default function FinanceModule() {
+export default function FinanceModule({ setActiveTab }) {
   const { orders, payouts, releasePayout, darkMode, drivers, vehicles } = useContext(AppStateContext);
 
   const getOrderCommission = (o) => {
@@ -194,11 +194,23 @@ export default function FinanceModule() {
           </div>
         </div>
 
-        {/* Driver payout release center */}
+        {/* Driver Fleet & Wallet Center */}
         <div className="dashboard-card" style={{ height: '340px' }}>
-          <div className="dashboard-card-header">
-            <h3 className="dashboard-card-title">Driver Payout Release Center</h3>
-            <span className="badge badge-pending">{pendingPayouts.length} Pending Payouts</span>
+          <div className="dashboard-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h3 className="dashboard-card-title">Driver Fleet & Wallet Activity</h3>
+              <span className="badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#2563EB', marginTop: '2px', fontWeight: '700' }}>5% Platform Commission</span>
+            </div>
+            {setActiveTab && (
+              <button
+                type="button"
+                className="btn"
+                style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)' }}
+                onClick={() => setActiveTab('drivers')}
+              >
+                Open Drivers Fleet →
+              </button>
+            )}
           </div>
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
             <table className="custom-table" style={{ fontSize: '12px' }}>

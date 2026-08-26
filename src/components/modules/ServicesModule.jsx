@@ -2,19 +2,45 @@ import React, { useState, useEffect, useContext } from 'react';
 import { Layers, Plus, Search, Edit, Trash2, X, Check, ArrowUp, ArrowDown, Upload, Link as LinkIcon, AlertCircle, ShieldAlert, Sparkles, Filter } from 'lucide-react';
 import { AppStateContext } from '../../context/AppState';
 
-const LS_KEY = 'porter_admin_services';
+export const CATEGORY_CONFIG = {
+  vehicle: {
+    id: 'vehicle',
+    name: 'Porter Trucks & Fleet',
+    emoji: '🚚',
+    badgeColor: '#15803D',
+    badgeBg: '#DCFCE7'
+  },
+  two_wheeler: {
+    id: 'two_wheeler',
+    name: '2 Wheeler / Bike',
+    emoji: '🛵',
+    badgeColor: '#0284C7',
+    badgeBg: '#E0F2FE'
+  },
+  packers: {
+    id: 'packers',
+    name: 'Packers & Movers',
+    emoji: '📦',
+    badgeColor: '#7E22CE',
+    badgeBg: '#F3E8FF'
+  }
+};
+
 
 export default function ServicesModule() {
-  const { authFetch } = useContext(AppStateContext);
-  const [services, setServices] = useState(() => {
-    try {
-      const saved = localStorage.getItem(LS_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [loading, setLoading] = useState(false);
+  const { authFetch, cities: contextCities, franchises, settings } = useContext(AppStateContext);
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Dynamically resolve operational cities from backend
+  const operationalCities = Array.from(new Set([
+    'Hyderabad',
+    ...(Array.isArray(contextCities) ? contextCities.map(c => c.name || c.id) : []),
+    ...(Array.isArray(franchises) ? franchises.map(f => f.city || f.location || f.name) : []),
+    ...((settings?.coverageCities || '').split(',').map(s => s.trim()).filter(Boolean))
+  ])).filter(Boolean);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -22,6 +48,10 @@ export default function ServicesModule() {
   const [showModal, setShowModal] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [modalTab, setModalTab] = useState('basic'); // basic, pricing, specs, visuals
+  const [uploadType, setUploadType] = useState('file'); // file | url
+  const [selectedImageFile, setSelectedImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [isImageRemoved, setIsImageRemoved] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -31,28 +61,19 @@ export default function ServicesModule() {
     base_fare: '249',
     base_km: '2',
     per_km_rate: '20',
-    helper_rate: '300',
+    helper_rate: '0',
     capacity_kg: '750',
     capacity_label: '750 Kg',
-    dimensions_length: '7 ft',
-    dimensions_width: '4.5 ft',
-    dimensions_height: '5 ft',
+    dimensions_length: '',
+    dimensions_width: '',
+    dimensions_height: '',
     eta_label: '10-15 mins',
     icon_url: '',
     bg_tint: '#EEF4FF',
     is_active: true,
     display_order: 1,
-    available_cities: ['ALL']
+    available_cities: ['Hyderabad']
   });
-
-  // Keep localStorage cache in sync whenever services change
-  useEffect(() => {
-    try {
-      if (services.length > 0) {
-        localStorage.setItem(LS_KEY, JSON.stringify(services));
-      }
-    } catch (e) {}
-  }, [services]);
 
   // Normalize service object to support both camelCase (API spec) and snake_case
   const normalizeService = (s) => {
@@ -63,19 +84,28 @@ export default function ServicesModule() {
       try { dims = JSON.parse(dims); } catch (e) { dims = { length: s.dimensions, width: '', height: '' }; }
     }
 
-    let cities = s.availableCities || s.available_cities || ['ALL'];
+    let cities = s.availableCities || s.available_cities || ['Hyderabad'];
     if (typeof cities === 'string') {
       try { cities = JSON.parse(cities); } catch (e) { cities = [cities]; }
+    }
+
+    const catKey = s.category || 'vehicle';
+    const catConfig = CATEGORY_CONFIG[catKey] || CATEGORY_CONFIG.vehicle;
+    let resolvedIcon = s.iconUrl || s.imageUrl || s.icon_url || s.image_url || '';
+    if (resolvedIcon.startsWith('https://api.anushaporter.com')) {
+      resolvedIcon = resolvedIcon.replace('https://api.anushaporter.com', '');
     }
 
     return {
       ...s,
       id: slugId,
-      numericId: s.id,
+      numericId: s.numericId || s.id,
       serviceId: slugId,
       name: s.name || s.label || 'New Service',
       label: s.label || s.name || 'New Service',
-      category: s.category || 'vehicle',
+      category: catKey,
+      categoryName: catConfig.name,
+      category_name: catConfig.name,
       subtitle: s.subtitle || s.description || '',
       description: s.description || s.subtitle || '',
       base_fare: s.baseFare !== undefined ? s.baseFare : (s.basePrice !== undefined ? s.basePrice : (s.base_fare || 0)),
@@ -93,12 +123,13 @@ export default function ServicesModule() {
       capacity_label: s.capacityLabel || s.capacity || s.capacity_label || `${s.capacityKg || s.capacity_kg || 0} Kg`,
       capacityLabel: s.capacityLabel || s.capacity || s.capacity_label || `${s.capacityKg || s.capacity_kg || 0} Kg`,
       capacity: s.capacity || s.capacityLabel || s.capacity_label || `${s.capacityKg || s.capacity_kg || 0} Kg`,
-      dimensions: dims || { length: '7 ft', width: '4.5 ft', height: '5 ft' },
+      dimensions: dims || { length: '', width: '', height: '' },
       eta_label: s.etaLabel || s.eta_label || '10-15 mins',
       etaLabel: s.etaLabel || s.eta_label || '10-15 mins',
-      icon_url: s.iconUrl || s.imageUrl || s.icon_url || '',
-      iconUrl: s.iconUrl || s.imageUrl || s.icon_url || '',
-      imageUrl: s.imageUrl || s.iconUrl || s.icon_url || '',
+      icon_url: resolvedIcon,
+      iconUrl: resolvedIcon,
+      imageUrl: resolvedIcon,
+      image_url: resolvedIcon,
       bg_tint: s.bgTint || s.bg_tint || '#EEF4FF',
       bgTint: s.bgTint || s.bg_tint || '#EEF4FF',
       is_active: s.isActive !== undefined ? Boolean(s.isActive) : (s.is_active !== undefined ? Boolean(s.is_active) : true),
@@ -111,18 +142,23 @@ export default function ServicesModule() {
     };
   };
 
-  // Fetch services directly from REST API
+  // Fetch services directly from live REST API
   const fetchServices = async () => {
     if (!authFetch) return;
+    setLoading(true);
+    setError(null);
     try {
       let res = await authFetch('/api/admin/services');
       if (res.ok) {
         const data = await res.json();
         const items = Array.isArray(data) ? data : (data?.services || []);
-        if (items.length > 0) {
-          setServices(items.map(normalizeService));
-          return;
-        }
+        const validItems = items
+          .filter(item => item && item.category !== 'how_it_works' && item.category !== 'intercity')
+          .map(normalizeService);
+        validItems.sort((a, b) => (a.display_order || 1) - (b.display_order || 1));
+        setServices(validItems);
+        setLoading(false);
+        return;
       }
 
       // Fallback to public services endpoint
@@ -130,12 +166,19 @@ export default function ServicesModule() {
       if (pubRes.ok) {
         const pubData = await pubRes.json();
         const pubItems = Array.isArray(pubData) ? pubData : (pubData?.services || pubData?.featuredServices || []);
-        if (pubItems.length > 0) {
-          setServices(pubItems.map(normalizeService));
-        }
+        const validPub = pubItems
+          .filter(item => item && item.category !== 'how_it_works' && item.category !== 'intercity')
+          .map(normalizeService);
+        validPub.sort((a, b) => (a.display_order || 1) - (b.display_order || 1));
+        setServices(validPub);
+      } else {
+        setError('Failed to fetch services from backend server.');
       }
     } catch (e) {
-      console.warn('API services fetch note (using local cache):', e);
+      console.error('API services fetch error:', e);
+      setError(e.message || 'Network error fetching services.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -144,9 +187,13 @@ export default function ServicesModule() {
   }, []);
 
   const handleOpenModal = (service = null) => {
+    setSelectedImageFile(null);
+    setIsImageRemoved(false);
     if (service) {
       const s = normalizeService(service);
       setEditingService(s);
+      const existingImg = s.iconUrl || s.imageUrl || '';
+      setImagePreview(existingImg);
       setFormData({
         name: s.name || '',
         category: s.category || 'vehicle',
@@ -154,21 +201,23 @@ export default function ServicesModule() {
         base_fare: String(s.baseFare || 249),
         base_km: String(s.baseKm || 2),
         per_km_rate: String(s.perKmRate || 20),
-        helper_rate: String(s.helperRate || 300),
+        helper_rate: s.helperRate != null ? String(s.helperRate) : (s.helper_rate != null ? String(s.helper_rate) : '0'),
         capacity_kg: String(s.capacityKg || 750),
         capacity_label: s.capacityLabel || `${s.capacityKg || 750} Kg`,
-        dimensions_length: s.dimensions?.length || '7 ft',
-        dimensions_width: s.dimensions?.width || '4.5 ft',
-        dimensions_height: s.dimensions?.height || '5 ft',
+        dimensions_length: s.dimensions?.length || '',
+        dimensions_width: s.dimensions?.width || '',
+        dimensions_height: s.dimensions?.height || '',
         eta_label: s.etaLabel || '10-15 mins',
-        icon_url: s.iconUrl || '',
+        icon_url: existingImg,
         bg_tint: s.bgTint || '#EEF4FF',
         is_active: s.isActive,
         display_order: s.displayOrder || services.length + 1,
-        available_cities: Array.isArray(s.availableCities) ? s.availableCities : ['ALL']
+        available_cities: Array.isArray(s.availableCities) && s.availableCities.length > 0 ? s.availableCities : ['Hyderabad']
       });
+      setUploadType(existingImg ? 'url' : 'file');
     } else {
       setEditingService(null);
+      setImagePreview('');
       setFormData({
         name: '',
         category: 'vehicle',
@@ -176,41 +225,104 @@ export default function ServicesModule() {
         base_fare: '249',
         base_km: '2',
         per_km_rate: '20',
-        helper_rate: '300',
+        helper_rate: '0',
         capacity_kg: '750',
         capacity_label: '750 Kg',
-        dimensions_length: '7 ft',
-        dimensions_width: '4.5 ft',
-        dimensions_height: '5 ft',
+        dimensions_length: '',
+        dimensions_width: '',
+        dimensions_height: '',
         eta_label: '10-15 mins',
         icon_url: '',
         bg_tint: '#EEF4FF',
         is_active: true,
         display_order: services.length + 1,
-        available_cities: ['ALL']
+        available_cities: ['Hyderabad']
       });
+      setUploadType('file');
     }
     setModalTab('basic');
     setShowModal(true);
   };
 
+  const handleImageFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file (PNG, JPG, WebP, SVG)');
+        return;
+      }
+      setSelectedImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (uploadEvent) => {
+        const dataUrl = uploadEvent.target.result;
+        setImagePreview(dataUrl);
+        setFormData(prev => ({ ...prev, icon_url: dataUrl }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleCloseModal = () => {
+    setSelectedImageFile(null);
+    setImagePreview('');
     setShowModal(false);
     setEditingService(null);
+    setIsImageRemoved(false);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim()) return;
+    if (!formData.name.trim()) {
+      alert('Please enter a service name.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    let finalIconUrl = formData.icon_url ? formData.icon_url.trim() : '';
+
+    // Step A: If an image file was selected by user, attempt upload to /api/upload
+    if (selectedImageFile) {
+      try {
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', selectedImageFile);
+
+        const uploadRes = await authFetch('/api/upload', {
+          method: 'POST',
+          body: uploadFormData
+        });
+
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          if (uploadData && uploadData.url) {
+            finalIconUrl = uploadData.url.startsWith('http')
+              ? uploadData.url
+              : `https://api.anushaporter.com${uploadData.url}`;
+          }
+        } else {
+          console.warn('[Image Upload] Server upload failed, using Data URL fallback.');
+          if (imagePreview && imagePreview.startsWith('data:image/')) {
+            finalIconUrl = imagePreview;
+          }
+        }
+      } catch (uploadErr) {
+        console.warn('[Image Upload] Upload exception, falling back to data URL:', uploadErr);
+        if (imagePreview && imagePreview.startsWith('data:image/')) {
+          finalIconUrl = imagePreview;
+        }
+      }
+    } else if (editingService && !isImageRemoved && !finalIconUrl) {
+      finalIconUrl = editingService.iconUrl || editingService.imageUrl || '';
+    }
 
     const slugId = editingService
       ? (editingService.serviceId || editingService.id)
       : formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
     const dimObj = {
-      length: formData.dimensions_length,
-      width: formData.dimensions_width,
-      height: formData.dimensions_height
+      length: formData.dimensions_length || '',
+      width: formData.dimensions_width || '',
+      height: formData.dimensions_height || ''
     };
 
     const servicePayload = normalizeService({
@@ -219,124 +331,132 @@ export default function ServicesModule() {
       name: formData.name.trim(),
       label: formData.name.trim(),
       category: formData.category,
+      categoryName: CATEGORY_CONFIG[formData.category]?.name || 'Porter Trucks & Fleet',
       subtitle: formData.subtitle.trim(),
       description: formData.subtitle.trim(),
       baseFare: parseFloat(formData.base_fare) || 0,
       basePrice: parseFloat(formData.base_fare) || 0,
-      base_fare: parseFloat(formData.base_fare) || 0,
-      baseKm: parseFloat(formData.base_km) || 0,
-      base_km: parseFloat(formData.base_km) || 0,
+      baseKm: parseFloat(formData.base_km) || 2,
       perKmRate: parseFloat(formData.per_km_rate) || 0,
       pricePerKm: parseFloat(formData.per_km_rate) || 0,
-      per_km_rate: parseFloat(formData.per_km_rate) || 0,
       helperRate: parseFloat(formData.helper_rate) || 0,
-      helper_rate: parseFloat(formData.helper_rate) || 0,
       capacityKg: parseInt(formData.capacity_kg) || 0,
-      capacity_kg: parseInt(formData.capacity_kg) || 0,
       capacityLabel: formData.capacity_label.trim() || `${formData.capacity_kg} Kg`,
       capacity: formData.capacity_label.trim() || `${formData.capacity_kg} Kg`,
       dimensions: dimObj,
-      etaLabel: formData.eta_label.trim(),
-      eta_label: formData.eta_label.trim(),
-      iconUrl: formData.icon_url.trim(),
-      imageUrl: formData.icon_url.trim(),
-      icon_url: formData.icon_url.trim(),
-      bgTint: formData.bg_tint,
-      bg_tint: formData.bg_tint,
+      etaLabel: formData.eta_label.trim() || '10-15 mins',
+      iconUrl: finalIconUrl,
+      imageUrl: finalIconUrl,
+      bgTint: formData.bg_tint || '#EEF4FF',
       isActive: Boolean(formData.is_active),
-      is_active: Boolean(formData.is_active),
+      customerVisible: Boolean(formData.is_active),
+      showOnCustomerApp: Boolean(formData.is_active),
       displayOrder: parseInt(formData.display_order) || services.length + 1,
       order: parseInt(formData.display_order) || services.length + 1,
-      display_order: parseInt(formData.display_order) || services.length + 1,
-      availableCities: formData.available_cities,
-      available_cities: formData.available_cities,
-      updatedAt: new Date().toISOString()
+      availableCities: formData.available_cities.length > 0 ? formData.available_cities : ['Hyderabad']
     });
 
-    // Update Local State & LS
-    if (editingService) {
-      setServices(prev => prev.map(s => (s.id === editingService.id || s.serviceId === slugId) ? servicePayload : s));
-    } else {
-      setServices(prev => [...prev, servicePayload]);
-    }
+    try {
+      const targetEndpointId = editingService?.numericId || editingService?.serviceId || editingService?.id || slugId;
+      const endpoint = editingService ? `/api/admin/services/${targetEndpointId}` : '/api/admin/services';
+      const method = editingService ? 'PUT' : 'POST';
 
-    // Call REST API matching backend spec
-    if (authFetch) {
-      try {
-        const endpoint = editingService ? `/api/admin/services/${slugId}` : '/api/admin/services';
-        const method = editingService ? 'PUT' : 'POST';
+      const apiBody = {
+        serviceId: slugId,
+        name: servicePayload.name,
+        label: servicePayload.label,
+        category: servicePayload.category,
+        categoryName: servicePayload.categoryName,
+        subtitle: servicePayload.subtitle,
+        description: servicePayload.description,
+        baseFare: servicePayload.baseFare,
+        basePrice: servicePayload.basePrice,
+        baseKm: servicePayload.baseKm,
+        perKmRate: servicePayload.perKmRate,
+        pricePerKm: servicePayload.pricePerKm,
+        helperRate: servicePayload.helperRate,
+        capacityKg: servicePayload.capacityKg,
+        capacityLabel: servicePayload.capacityLabel,
+        capacity: servicePayload.capacity,
+        dimensions: JSON.stringify(servicePayload.dimensions),
+        etaLabel: servicePayload.etaLabel,
+        iconUrl: finalIconUrl,
+        imageUrl: finalIconUrl,
+        icon_url: finalIconUrl,
+        image_url: finalIconUrl,
+        bgTint: servicePayload.bgTint,
+        isActive: servicePayload.isActive,
+        is_active: servicePayload.isActive,
+        customerVisible: servicePayload.isActive,
+        showOnCustomerApp: servicePayload.isActive,
+        displayOrder: servicePayload.displayOrder,
+        order: servicePayload.displayOrder,
+        availableCities: JSON.stringify(servicePayload.availableCities)
+      };
 
-        const apiBody = {
-          serviceId: slugId,
-          name: servicePayload.name,
-          label: servicePayload.label,
-          category: servicePayload.category,
-          subtitle: servicePayload.subtitle,
-          baseFare: servicePayload.baseFare,
-          baseKm: servicePayload.baseKm,
-          perKmRate: servicePayload.perKmRate,
-          helperRate: servicePayload.helperRate,
-          capacityKg: servicePayload.capacityKg,
-          capacityLabel: servicePayload.capacityLabel,
-          dimensions: JSON.stringify(servicePayload.dimensions),
-          etaLabel: servicePayload.etaLabel,
-          iconUrl: servicePayload.iconUrl,
-          bgTint: servicePayload.bgTint,
-          isActive: servicePayload.isActive,
-          displayOrder: servicePayload.displayOrder,
-          availableCities: JSON.stringify(servicePayload.availableCities)
-        };
+      console.log(`[Service ${method}] Dispatching to ${endpoint}:`, apiBody);
 
-        await authFetch(endpoint, {
-          method,
-          body: JSON.stringify(apiBody)
-        });
-      } catch (err) {
-        console.warn('Backend service save note (retained in local cache):', err);
+      const res = await authFetch(endpoint, {
+        method,
+        body: JSON.stringify(apiBody)
+      });
+
+      console.log(`[Service ${method}] Response Status:`, res.status);
+
+      if (res.ok) {
+        handleCloseModal();
+        await fetchServices();
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.error(`[Service ${method}] Error:`, res.status, errText);
+        alert(`Failed to save service (Server status ${res.status}): ${errText || 'Please try again.'}`);
       }
+    } catch (err) {
+      console.error('Backend service save error:', err);
+      alert('Error saving service to backend: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
-
-    handleCloseModal();
   };
 
   const handleToggleStatus = async (id) => {
-    let nextStatus = false;
-    let targetService = null;
+    const targetService = services.find(s => s.id === id || s.serviceId === id || s.numericId === id);
+    if (!targetService) return;
+    const nextStatus = !targetService.is_active;
+    const targetId = targetService?.numericId || targetService?.serviceId || targetService?.id || id;
 
-    setServices(prev => prev.map(s => {
-      if (s.id === id || s.serviceId === id || s.numericId === id) {
-        nextStatus = !s.is_active;
-        targetService = s;
-        return { ...s, is_active: nextStatus, isActive: nextStatus };
-      }
-      return s;
-    }));
+    // Optimistic UI update
+    setServices(prev => prev.map(s => (s.id === id || s.serviceId === id || s.numericId === id) ? { ...s, is_active: nextStatus, isActive: nextStatus } : s));
 
-    if (authFetch) {
-      try {
-        const targetId = targetService?.numericId || targetService?.id || id;
-        await authFetch(`/api/admin/services/${targetId}/toggle-status`, {
-          method: 'PATCH',
-          body: JSON.stringify({ isActive: nextStatus, is_active: nextStatus })
-        });
-      } catch (e) {}
+    try {
+      await authFetch(`/api/admin/services/${targetId}/toggle-status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: nextStatus, is_active: nextStatus, status: nextStatus ? 'active' : 'inactive' })
+      });
+      await fetchServices();
+    } catch (e) {
+      console.error('Toggle status error:', e);
+      await fetchServices();
     }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete / archive this service?')) {
+    if (window.confirm('Are you sure you want to delete this service from database?')) {
       const targetService = services.find(s => s.id === id || s.serviceId === id || s.numericId === id);
       const targetId = targetService?.numericId || targetService?.serviceId || id;
+      
       setServices(prev => prev.filter(s => s.id !== id && s.serviceId !== id && s.numericId !== id));
-      if (authFetch) {
-        try {
-          await authFetch(`/api/admin/services/${targetId}`, { method: 'DELETE' });
-        } catch (e) {}
+      try {
+        await authFetch(`/api/admin/services/${targetId}`, { method: 'DELETE' });
+        await fetchServices();
+      } catch (e) {
+        console.error('Delete service error:', e);
+        await fetchServices();
       }
     }
   };
 
-  const handleMoveOrder = (index, direction) => {
+  const handleMoveOrder = async (index, direction) => {
     const newServices = [...services];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= newServices.length) return;
@@ -346,16 +466,17 @@ export default function ServicesModule() {
     newServices[targetIndex] = temp;
 
     // Reassign display_order sequentially
-    const reordered = newServices.map((s, idx) => ({ ...s, display_order: idx + 1 }));
+    const reordered = newServices.map((s, idx) => ({ ...s, display_order: idx + 1, order: idx + 1 }));
     setServices(reordered);
 
-    if (authFetch) {
-      try {
-        authFetch('/api/admin/services/reorder', {
-          method: 'PATCH',
-          body: JSON.stringify({ serviceIds: reordered.map(s => s.id) })
-        });
-      } catch (e) {}
+    try {
+      await authFetch('/api/admin/services/reorder', {
+        method: 'PATCH',
+        body: JSON.stringify({ serviceIds: reordered.map(s => s.id || s.serviceId) })
+      });
+      await fetchServices();
+    } catch (e) {
+      console.error('Reorder error:', e);
     }
   };
 
@@ -392,6 +513,29 @@ export default function ServicesModule() {
         </button>
       </div>
 
+      {/* Error Alert Box */}
+      {error && (
+        <div style={{
+          padding: '12px 16px',
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid #ef4444',
+          borderRadius: '8px',
+          color: '#ef4444',
+          marginBottom: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600' }}>
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+          <button className="btn btn-secondary" onClick={fetchServices} style={{ padding: '4px 10px', fontSize: '12px' }}>
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Filter & Control Bar */}
       <div className="table-container" style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -418,8 +562,6 @@ export default function ServicesModule() {
                 <option value="vehicle">🚚 Porter Trucks & Fleet</option>
                 <option value="two_wheeler">🛵 2 Wheeler / Bike</option>
                 <option value="packers">📦 Packers & Movers</option>
-                <option value="intercity">🛣️ Intercity / Outstation</option>
-                <option value="how_it_works">❓ How Porter Works (Guide)</option>
               </select>
             </div>
 
@@ -453,10 +595,19 @@ export default function ServicesModule() {
             </tr>
           </thead>
           <tbody>
-            {filteredServices.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan="8" style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '28px', height: '28px', border: '3px solid var(--border-color)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    <span style={{ fontSize: '13px', fontWeight: '500' }}>Loading live fleet services from database...</span>
+                  </div>
+                </td>
+              </tr>
+            ) : filteredServices.length === 0 ? (
               <tr>
                 <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  No services match your filters. Click <strong>'+ Add New Service'</strong> to create one.
+                  No services found. Click <strong>'+ Add New Service'</strong> to create one.
                 </td>
               </tr>
             ) : (
@@ -489,9 +640,22 @@ export default function ServicesModule() {
 
                   {/* Icon Thumbnail */}
                   <td>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', backgroundColor: service.bg_tint || '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', backgroundColor: service.bg_tint || '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                       {service.icon_url ? (
-                        <img src={service.icon_url} alt={service.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                        <>
+                          <img 
+                            src={service.icon_url} 
+                            alt={service.name} 
+                            style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} 
+                            onError={(e) => { 
+                              e.target.style.display = 'none'; 
+                              if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; 
+                            }} 
+                          />
+                          <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                            <Layers size={22} color="var(--primary)" />
+                          </div>
+                        </>
                       ) : (
                         <Layers size={22} color="var(--primary)" />
                       )}
@@ -514,11 +678,11 @@ export default function ServicesModule() {
                   {/* Category Badge */}
                   <td>
                     <span className="badge" style={{
-                      backgroundColor: service.category === 'two_wheeler' ? '#E0F2FE' : service.category === 'packers' ? '#F3E8FF' : service.category === 'how_it_works' ? '#FEE2E2' : '#DCFCE7',
-                      color: service.category === 'two_wheeler' ? '#0284C7' : service.category === 'packers' ? '#7E22CE' : service.category === 'how_it_works' ? '#DC2626' : '#15803D',
+                      backgroundColor: service.category === 'two_wheeler' ? '#E0F2FE' : service.category === 'packers' ? '#F3E8FF' : '#DCFCE7',
+                      color: service.category === 'two_wheeler' ? '#0284C7' : service.category === 'packers' ? '#7E22CE' : '#15803D',
                       fontWeight: '600'
                     }}>
-                      {service.category === 'two_wheeler' ? '2 Wheeler' : service.category === 'packers' ? 'Packers & Movers' : service.category === 'how_it_works' ? 'How It Works' : service.category === 'intercity' ? 'Outstation' : 'Porter Truck'}
+                      {service.category === 'two_wheeler' ? '2 Wheeler' : service.category === 'packers' ? 'Packers & Movers' : 'Porter Truck'}
                     </span>
                   </td>
 
@@ -531,9 +695,9 @@ export default function ServicesModule() {
                   {/* Capacity & Dimensions */}
                   <td>
                     <div style={{ fontSize: '13px', fontWeight: '600' }}>{service.capacity_label || `${service.capacity_kg} Kg`}</div>
-                    {service.dimensions && (
+                    {service.dimensions && (service.dimensions.length || service.dimensions.width || service.dimensions.height) && (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {service.dimensions.length} × {service.dimensions.width}
+                        {[service.dimensions.length, service.dimensions.width, service.dimensions.height].filter(Boolean).join(' × ')}
                       </div>
                     )}
                   </td>
@@ -587,6 +751,7 @@ export default function ServicesModule() {
 
             <form
               onSubmit={handleSubmit}
+              noValidate
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && modalTab !== 'visuals') {
                   e.preventDefault();
@@ -622,8 +787,6 @@ export default function ServicesModule() {
                         <option value="vehicle">🚚 Porter Trucks & Fleet</option>
                         <option value="two_wheeler">🛵 2 Wheeler / Bike</option>
                         <option value="packers">📦 Packers & Movers</option>
-                        <option value="intercity">🛣️ Intercity / Outstation</option>
-                        <option value="how_it_works">❓ How Porter Works (Guide Step)</option>
                       </select>
                     </div>
 
@@ -757,7 +920,7 @@ export default function ServicesModule() {
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Cargo Bed Dimensions</label>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Cargo Bed Dimensions (Optional)</label>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                       <input
                         type="text"
@@ -783,16 +946,6 @@ export default function ServicesModule() {
                     </div>
                   </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Default ETA Estimate Label</label>
-                    <input
-                      type="text"
-                      value={formData.eta_label}
-                      onChange={(e) => setFormData(prev => ({ ...prev, eta_label: e.target.value }))}
-                      placeholder="e.g. 10-15 mins"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
-                    />
-                  </div>
                 </div>
               )}
 
@@ -800,22 +953,99 @@ export default function ServicesModule() {
               {modalTab === 'visuals' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Icon / 3D Illustration Image URL</label>
-                    <input
-                      type="url"
-                      value={formData.icon_url}
-                      onChange={(e) => setFormData(prev => ({ ...prev, icon_url: e.target.value }))}
-                      placeholder="https://cdn.anushaporter.com/services/tata-ace.png"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
-                    />
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Service Icon / 3D Illustration</label>
+                    
+                    {/* Method Selector */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                      <button
+                        type="button"
+                        className={`btn ${uploadType === 'file' ? 'btn-primary' : ''}`}
+                        style={{ flex: 1, padding: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', border: '1px solid var(--border-color)', background: uploadType === 'file' ? undefined : 'var(--bg-main)' }}
+                        onClick={() => setUploadType('file')}
+                      >
+                        <Upload size={14} /> Upload Image File
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn ${uploadType === 'url' ? 'btn-primary' : ''}`}
+                        style={{ flex: 1, padding: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', border: '1px solid var(--border-color)', background: uploadType === 'url' ? undefined : 'var(--bg-main)' }}
+                        onClick={() => setUploadType('url')}
+                      >
+                        <LinkIcon size={14} /> Image URL (Link)
+                      </button>
+                    </div>
+
+                    {uploadType === 'file' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageFileChange}
+                          style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', backgroundColor: 'var(--bg-main)', fontSize: '13px' }}
+                        />
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Upload PNG, JPG, WebP, or SVG. Recommended: 512x512 with transparent background.</span>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={formData.icon_url}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({ ...prev, icon_url: val }));
+                          setImagePreview(val);
+                          setSelectedImageFile(null);
+                        }}
+                        placeholder="https://cdn.anushaporter.com/services/tata-ace.png or /uploads/..."
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
+                      />
+                    )}
                   </div>
 
-                  {formData.icon_url && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                      <div style={{ width: '60px', height: '60px', borderRadius: '8px', overflow: 'hidden', backgroundColor: formData.bg_tint }}>
-                        <img src={formData.icon_url} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => e.target.style.display = 'none'} />
+                  {(imagePreview || formData.icon_url) && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '60px', height: '60px', borderRadius: '8px', overflow: 'hidden', backgroundColor: formData.bg_tint, border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                          {imagePreview || formData.icon_url ? (
+                            <>
+                              <img 
+                                src={imagePreview || formData.icon_url} 
+                                alt="Preview" 
+                                style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} 
+                                onError={(e) => { 
+                                  e.target.style.display = 'none'; 
+                                  if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; 
+                                }} 
+                              />
+                              <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                                <Layers size={24} color="var(--primary)" />
+                              </div>
+                            </>
+                          ) : (
+                            <Layers size={24} color="var(--primary)" />
+                          )}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: '600' }}>Icon Preview</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {selectedImageFile ? `New file selected: ${selectedImageFile.name}` : 'Rendered with selected Card Accent Tint'}
+                          </div>
+                        </div>
                       </div>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Icon Preview with Card Accent Tint</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (imagePreview && imagePreview.startsWith('blob:')) {
+                            try { URL.revokeObjectURL(imagePreview); } catch (e) {}
+                          }
+                          setSelectedImageFile(null);
+                          setImagePreview('');
+                          setFormData(prev => ({ ...prev, icon_url: '' }));
+                          setIsImageRemoved(true);
+                        }}
+                        style={{ padding: '4px 10px', fontSize: '12px', color: '#EF4444', backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: '6px', cursor: 'pointer', fontWeight: '500' }}
+                      >
+                        Remove
+                      </button>
                     </div>
                   )}
 
@@ -840,24 +1070,26 @@ export default function ServicesModule() {
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Available Cities</label>
                     <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                      {['ALL', 'Hyderabad', 'Secunderabad', 'Bangalore', 'Chennai'].map(city => (
-                        <label key={city} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                      {operationalCities.map(city => (
+                        <label key={city} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', padding: '8px 16px', background: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                           <input
                             type="checkbox"
-                            checked={formData.available_cities.includes(city)}
+                            checked={formData.available_cities.includes(city) || formData.available_cities.includes('ALL')}
                             onChange={(e) => {
-                              if (city === 'ALL') {
-                                setFormData(prev => ({ ...prev, available_cities: ['ALL'] }));
+                              if (e.target.checked) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  available_cities: Array.from(new Set([...prev.available_cities, city]))
+                                }));
                               } else {
-                                const exists = formData.available_cities.includes(city);
-                                const next = exists
-                                  ? formData.available_cities.filter(c => c !== city && c !== 'ALL')
-                                  : [...formData.available_cities.filter(c => c !== 'ALL'), city];
-                                setFormData(prev => ({ ...prev, available_cities: next.length === 0 ? ['ALL'] : next }));
+                                setFormData(prev => ({
+                                  ...prev,
+                                  available_cities: prev.available_cities.filter(c => c !== city && c !== 'ALL')
+                                }));
                               }
                             }}
                           />
-                          {city}
+                          <span style={{ fontWeight: '600', color: 'var(--primary)' }}>📍 {city}</span>
                         </label>
                       ))}
                     </div>
@@ -888,8 +1120,8 @@ export default function ServicesModule() {
                       Next Step
                     </button>
                   ) : (
-                    <button type="submit" className="btn btn-primary">
-                      {editingService ? 'Update Service' : 'Save Service'}
+                    <button type="submit" className="btn btn-primary" disabled={isSaving}>
+                      {isSaving ? 'Saving to Database...' : (editingService ? 'Update Service' : 'Save Service')}
                     </button>
                   )}
                 </div>
