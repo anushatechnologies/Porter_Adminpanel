@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Package, LayoutDashboard, Layers, MapPin, Clock, ShoppingBag,
   Wrench, Truck, Calculator, Tag, FileText, Users, Navigation,
   CheckSquare, AlertOctagon, DollarSign, MessageSquare, Bell, Sliders
 } from 'lucide-react';
-import { PackersMoversProvider } from './PackersMoversContext';
+import { PackersMoversProvider, PackersMoversContext } from './PackersMoversContext';
 import PMDashboard from './sections/PMDashboard';
 import PMServiceConfig from './sections/PMServiceConfig';
 import PMServiceAreas from './sections/PMServiceAreas';
@@ -53,6 +53,7 @@ const SUB_MODULES = [
 ];
 
 function InnerPackersMoversContent() {
+  const { loading, error, refetch } = useContext(PackersMoversContext);
   const [activeSubTab, setActiveSubTab] = useState('dashboard');
   const [openedBooking, setOpenedBooking] = useState(null);
   const [quoteBooking, setQuoteBooking] = useState(null);
@@ -118,7 +119,23 @@ function InnerPackersMoversContent() {
             Central administration control room for home & office shifting, inventory catalog, pricing algorithms, quotes, teams and live moves.
           </p>
         </div>
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+            <div style={{ width: '16px', height: '16px', border: '2px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            Syncing with backend...
+          </div>
+        )}
       </div>
+
+      {/* API Error Banner */}
+      {error && (
+        <div style={{ padding: '12px 18px', borderRadius: '8px', backgroundColor: '#FFF5F5', border: '1px solid #FCA5A5', color: '#B91C1C', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <span>⚠️ {error}</span>
+          <button onClick={refetch} style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #B91C1C', background: 'none', color: '#B91C1C', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Sub-Navigation Navigation Ribbon */}
       <div style={{
