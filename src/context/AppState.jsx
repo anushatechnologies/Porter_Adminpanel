@@ -2,6 +2,23 @@ import React, { createContext, useState, useEffect, useRef } from 'react';
 
 export const AppStateContext = createContext();
 
+// API Base URL Resolver for production (GoDaddy/Domain) and local dev
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (
+  typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+    ? '' 
+    : 'https://api.anushaporter.com'
+);
+
+export const formatApiUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+    return url;
+  }
+  const base = API_BASE_URL.replace(/\/+$/, '');
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return base ? `${base}${path}` : path;
+};
+
 export const AppStateProvider = ({ children }) => {
   const [user, setUser] = useState(null); // Auth User
   const [darkMode, setDarkMode] = useState(() => {
@@ -162,20 +179,24 @@ export const AppStateProvider = ({ children }) => {
 
   const loginAdminBackend = async () => {
     try {
-      const res = await fetch('/api/auth/login', {
+      const targetUrl = formatApiUrl('/api/auth/login');
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'admin@porter.com', password: 'password123' })
       });
       if (res.ok) {
-        const data = await res.json();
-        if (data.token) {
-          localStorage.setItem('porter_admin_token', data.token);
-          if (data.user) {
-            setUser(data.user);
-            localStorage.setItem('porter_admin_user', JSON.stringify(data.user));
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data.token) {
+            localStorage.setItem('porter_admin_token', data.token);
+            if (data.user) {
+              setUser(data.user);
+              localStorage.setItem('porter_admin_user', JSON.stringify(data.user));
+            }
+            return data.token;
           }
-          return data.token;
         }
       }
     } catch (e) {
@@ -193,6 +214,7 @@ export const AppStateProvider = ({ children }) => {
       token = await loginAdminBackend();
     }
 
+    const targetUrl = formatApiUrl(url);
     const headers = {
       ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -200,7 +222,7 @@ export const AppStateProvider = ({ children }) => {
     };
 
     try {
-      let res = await fetch(url, { ...options, headers });
+      let res = await fetch(targetUrl, { ...options, headers });
       if (res.status === 401) {
         // Clear invalid token & attempt fresh login once
         localStorage.removeItem('porter_admin_token');
@@ -211,12 +233,12 @@ export const AppStateProvider = ({ children }) => {
             'Authorization': `Bearer ${freshToken}`,
             ...(options.headers || {})
           };
-          res = await fetch(url, { ...options, headers: retryHeaders });
+          res = await fetch(targetUrl, { ...options, headers: retryHeaders });
         }
       }
       return res;
     } catch (e) {
-      console.error(`[authFetch] Network fetch error for ${url}:`, e);
+      console.error(`[authFetch] Network fetch error for ${targetUrl}:`, e);
       throw e;
     }
   };
@@ -704,19 +726,23 @@ export const AppStateProvider = ({ children }) => {
   useEffect(() => {
     let ws = null;
     let reconnectTimeout = null;
+    let retryCount = 0;
+    const maxRetries = 5;
 
     const connectWebSocket = () => {
       // Only connect to WebSocket if explicitly on HTTPS production domain or backend WebSocket enabled
-      const isHttps = window.location.protocol === 'https:';
-      if (!isHttps && window.location.hostname === 'localhost') {
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      if (!isHttps && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
         // Skip local localhost:8080 WS connection attempt when local Spring Boot WS server is offline
         return;
       }
 
       try {
+        const token = localStorage.getItem('porter_admin_token');
+        const query = token ? `?token=${encodeURIComponent(token)}` : '';
         const wsUrl = isHttps 
-          ? `wss://api.anushaporter.com/ws`
-          : `ws://${window.location.hostname}:8080/ws`;
+          ? `wss://api.anushaporter.com/ws${query}`
+          : `ws://${window.location.hostname}:8080/ws${query}`;
 
         ws = new WebSocket(wsUrl);
 
@@ -724,7 +750,7 @@ export const AppStateProvider = ({ children }) => {
 
         ws.onopen = () => {
           retryCount = 0;
-          console.log('[WebSocket Telemetry] Connected to real-time stream:', wsUrl);
+          console.log('[WebSocket Telemetry] Connected to real-time stream:', wsUrl.split('?')[0]);
           heartbeatTimer = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ event: 'ping' }));
@@ -777,10 +803,14 @@ export const AppStateProvider = ({ children }) => {
           retryCount++;
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
           if (heartbeatTimer) clearInterval(heartbeatTimer);
-          if (retryCount < maxRetries) {
-            reconnectTimeout = setTimeout(connectWebSocket, 15000);
+          // If connection was closed due to auth failure (1008 or 4401) or max retries reached, do not retry
+          if (event && (event.code === 1008 || event.code === 4401 || event.code === 4001)) {
+            return;
+          }
+          if (retryCount < 2) {
+            reconnectTimeout = setTimeout(connectWebSocket, 30000);
           }
         };
       } catch (err) {
@@ -841,13 +871,18 @@ export const AppStateProvider = ({ children }) => {
 
   const handleLogin = async (usernameOrEmail, password) => {
     try {
-      const res = await fetch('/api/auth/login', {
+      const targetUrl = formatApiUrl('/api/auth/login');
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: usernameOrEmail, username: usernameOrEmail, password })
       });
       if (!res.ok && res.status >= 500) {
         return { success: false, message: `Backend server error (${res.status} Bad Gateway). Please restart your backend API container.` };
+      }
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        return { success: false, message: 'Backend API returned non-JSON response. Please verify your backend server is active.' };
       }
       const data = await res.json();
       if (data.success && data.user) {
@@ -862,13 +897,14 @@ export const AppStateProvider = ({ children }) => {
         return { success: false, message: data.message || 'Invalid email or password.' };
       }
     } catch (e) {
-      return { success: false, message: 'Unable to connect to authentication server. Backend server is currently offline (502 Bad Gateway).' };
+      return { success: false, message: 'Unable to connect to authentication server. Backend server is currently offline or unreachable.' };
     }
   };
 
   const handleSignup = async (signupData) => {
     try {
-      const res = await fetch('/api/auth/signup', {
+      const targetUrl = formatApiUrl('/api/auth/signup');
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -888,7 +924,8 @@ export const AppStateProvider = ({ children }) => {
 
   const verifyOtp = async (email, otp) => {
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const targetUrl = formatApiUrl('/api/auth/verify-otp');
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp })
@@ -902,7 +939,8 @@ export const AppStateProvider = ({ children }) => {
 
   const handleForgotPassword = async (email) => {
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const targetUrl = formatApiUrl('/api/auth/forgot-password');
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
@@ -916,7 +954,8 @@ export const AppStateProvider = ({ children }) => {
 
   const handleResetPassword = async (email, otp, newPassword) => {
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const targetUrl = formatApiUrl('/api/auth/reset-password');
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp, newPassword })
@@ -1097,15 +1136,47 @@ export const AppStateProvider = ({ children }) => {
     }).catch(() => null);
   };
 
-  const rejectDriverVerification = (driverId) => {
+  const rejectDriverVerification = (driverId, rejectionData = {}) => {
     const cleanId = String(driverId).replace(/^DRV-/, '');
-    setDrivers(prev => prev.map(d => (d.id === driverId || d.driverId === driverId || String(d.id) === cleanId) ? {
-      ...d, status: 'rejected', kyc: 'rejected', docs: { ...(d.docs || {}), license: 'Rejected', rc: 'Rejected', verified: false }
-    } : d));
+    const reason = typeof rejectionData === 'string' ? rejectionData : (rejectionData.reason || 'Documents invalid. Please re-upload clear copies.');
+    const rejectedDocs = rejectionData.rejectedDocs || ['license', 'rc'];
+    const notes = rejectionData.notes || '';
+
+    setDrivers(prev => prev.map(d => {
+      if (d.id === driverId || d.driverId === driverId || String(d.id) === cleanId) {
+        const updatedDocs = { ...(d.docs || {}), verified: false };
+        if (rejectedDocs.includes('license')) updatedDocs.license = 'Rejected';
+        if (rejectedDocs.includes('rc')) updatedDocs.rc = 'Rejected';
+        if (rejectedDocs.includes('aadhaar')) updatedDocs.aadhaar = 'Rejected';
+        if (rejectedDocs.includes('permit')) updatedDocs.permit = 'Rejected';
+
+        return {
+          ...d,
+          status: 'rejected',
+          kyc: 'rejected',
+          kycStatus: 'rejected',
+          rejectionReason: reason,
+          rejectionNotes: notes,
+          rejectedDocuments: rejectedDocs,
+          requireReupload: true,
+          docs: updatedDocs
+        };
+      }
+      return d;
+    }));
 
     authFetch(`/api/drivers/${cleanId}/reject`, {
       method: 'POST',
-      body: JSON.stringify({ status: 'rejected', kyc: 'rejected', reason: 'Documents invalid' })
+      body: JSON.stringify({
+        status: 'rejected',
+        kyc: 'rejected',
+        kycStatus: 'rejected',
+        reason,
+        rejectionReason: reason,
+        notes,
+        rejectedDocuments: rejectedDocs,
+        requireReupload: true
+      })
     }).catch(() => null);
   };
   const deleteDriver = (driverId) => {

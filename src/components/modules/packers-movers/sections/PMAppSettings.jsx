@@ -1,14 +1,34 @@
-import React, { useState, useContext } from 'react';
-import { Sliders, Check, Smartphone, ShieldCheck, ToggleLeft, ToggleRight } from 'lucide-react';
+import React, { useState, useContext, useEffect } from 'react';
+import { Sliders, Check, Smartphone, ShieldCheck, Phone, Mail, Clock, Calendar } from 'lucide-react';
 import { PackersMoversContext } from '../PackersMoversContext';
 
 export default function PMAppSettings() {
   const { appSettings, setAppSettings } = useContext(PackersMoversContext);
-  const [form, setForm] = useState(appSettings);
+  const [form, setForm] = useState(appSettings || {});
   const [isSaved, setIsSaved] = useState(false);
 
+  useEffect(() => {
+    if (appSettings) {
+      setForm(appSettings);
+    }
+  }, [appSettings]);
+
   const toggle = (key) => {
-    setForm(prev => ({ ...prev, [key]: !prev[key] }));
+    setForm(prev => {
+      const current = prev[key] === "true" || prev[key] === true;
+      return {
+        ...prev,
+        [key]: current ? "false" : "true"
+      };
+    });
+    setIsSaved(false);
+  };
+
+  const handleInputChange = (key, value) => {
+    setForm(prev => ({
+      ...prev,
+      [key]: value
+    }));
     setIsSaved(false);
   };
 
@@ -20,28 +40,29 @@ export default function PMAppSettings() {
   };
 
   const togglesList = [
-    { key: 'enablePackersMovers', label: 'Master Packers & Movers Feature Toggle', desc: 'Completely enable or disable the Packers & Movers service on customer mobile app' },
-    { key: 'enableWithinCity', label: 'Enable Local Within-City Shifting', desc: 'Allow customers to book intracity relocations' },
-    { key: 'enableBetweenCities', label: 'Enable Inter-City Highway Moves', desc: 'Allow customers to book interstate/long-distance city moves' },
-    { key: 'allowCustomerCustomItems', label: 'Allow Custom / Miscellaneous Item Input', desc: 'Allow users to type their own custom items not in catalogue' },
-    { key: 'allowPhotoUpload', label: 'Allow Customer Inventory Photo Upload', desc: 'Allow customer to upload photos of bulky/fragile furniture' },
-    { key: 'allowVideoUpload', label: 'Allow Video Tour Upload for Quotations', desc: 'Allow customers to record house video tour for estimates' },
-    { key: 'enableOnlinePayment', label: 'Enable Online UPI / Card / Netbanking', desc: 'Allow direct instant payment gateways' },
-    { key: 'enableCashOnDelivery', label: 'Enable Cash on Delivery / Unloading Settlement', desc: 'Allow customer to pay driver directly upon completion' },
-    { key: 'enablePartialAdvancePayment', label: 'Enable Advance Token Deposit (e.g. 30%)', desc: 'Require partial deposit to confirm slot and balance at drop' },
-    { key: 'enableCoupons', label: 'Enable Promo Code Discounts on Checkout', desc: 'Show promo code input box on customer checkout screen' },
-    { key: 'enableRescheduling', label: 'Allow Self-Service Rescheduling in App', desc: 'Allow customers to change time slot before cutoff window' }
+    { key: 'packersMoversEnabled', label: 'Master Packers & Movers Service', desc: 'Completely enable/disable Packers & Movers on customer mobile app' },
+    { key: 'intracityEnabled', label: 'Intracity House Shifting', desc: 'Allow within-city local shifting bookings' },
+    { key: 'intercityEnabled', label: 'Intercity Relocation', desc: 'Allow long-distance inter-city corridor bookings' },
+    { key: 'onlinePriceEnabled', label: 'Instant Online Price Calculation', desc: 'Show instant algorithmic price quote to customers' },
+    { key: 'quotePriceEnabled', label: 'Custom Quote Review Flow', desc: 'Send request to Admin desk for manual quote verification' },
+    { key: 'liveTrackingEnabled', label: 'Live GPS Move Tracking', desc: 'Enable live 8-stage progress tracker and telemetry in app' },
+    { key: 'otpVerificationEnabled', label: 'Delivery OTP Verification', desc: 'Require 4-digit OTP from customer to mark move as delivered' },
+    { key: 'reviewsEnabled', label: 'Customer Ratings & Reviews', desc: 'Prompt customers for post-move crew reviews' },
+    { key: 'couponsEnabled', label: 'Coupon & Promo Codes', desc: 'Allow promo voucher redemption at checkout' },
+    { key: 'rescheduleEnabled', label: 'Customer Self Rescheduling', desc: 'Allow customer to reschedule time slot before notice period' },
+    { key: 'cancellationEnabled', label: 'Customer Self Cancellation', desc: 'Allow customers to cancel with automated stage penalty refund' },
+    { key: 'maintenanceMode', label: 'Maintenance Mode', desc: 'Temporarily pause new Packers & Movers bookings' }
   ];
 
   return (
     <form onSubmit={handleSave} noValidate className="animate-fade" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sliders size={20} color="var(--primary)" /> Customer Mobile App Feature Controls & Toggles
+            <Sliders size={20} color="var(--primary)" /> Flow 14 — Customer App Feature Toggles & System Policy
           </h3>
           <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-            Real-time control switches that dynamically show or hide options on the Customer Porter Android / iOS App.
+            Real-time feature switches read by Customer App via <code>GET /api/pm/app-settings</code>.
           </p>
         </div>
 
@@ -51,16 +72,17 @@ export default function PMAppSettings() {
         </button>
       </div>
 
+      {/* Feature Toggles List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {togglesList.map(t => {
-          const isOn = Boolean(form[t.key]);
+          const isOn = form[t.key] === "true" || form[t.key] === true;
           return (
             <div
               key={t.key}
               onClick={() => toggle(t.key)}
               className="card"
               style={{
-                padding: '16px 20px',
+                padding: '14px 18px',
                 borderRadius: '8px',
                 border: isOn ? '1px solid #BBF7D0' : '1px solid var(--border-color)',
                 backgroundColor: isOn ? '#F0FDF4' : 'var(--card-bg)',
@@ -82,7 +104,7 @@ export default function PMAppSettings() {
               <div style={{
                 padding: '4px 12px',
                 borderRadius: '20px',
-                fontSize: '12px',
+                fontSize: '11px',
                 fontWeight: '800',
                 backgroundColor: isOn ? '#10B981' : '#E2E8F0',
                 color: isOn ? '#FFF' : '#64748B'
@@ -92,6 +114,61 @@ export default function PMAppSettings() {
             </div>
           );
         })}
+      </div>
+
+      {/* Advance Booking & Support Contact Configuration */}
+      <div className="card" style={{ padding: '18px 20px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700' }}>Booking Notice Windows & Support Desk</h4>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>
+              Minimum Advance Booking (Hours)
+            </label>
+            <input
+              type="text"
+              value={form.minimumAdvanceBookingHrs || "4"}
+              onChange={(e) => handleInputChange('minimumAdvanceBookingHrs', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>
+              Maximum Advance Booking (Days)
+            </label>
+            <input
+              type="text"
+              value={form.maximumAdvanceBookingDays || "30"}
+              onChange={(e) => handleInputChange('maximumAdvanceBookingDays', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>
+              P&M Customer Support Phone
+            </label>
+            <input
+              type="text"
+              value={form.supportPhone || "+919999999999"}
+              onChange={(e) => handleInputChange('supportPhone', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>
+              P&M Customer Support Email
+            </label>
+            <input
+              type="email"
+              value={form.supportEmail || "support@porter.com"}
+              onChange={(e) => handleInputChange('supportEmail', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+            />
+          </div>
+        </div>
       </div>
     </form>
   );

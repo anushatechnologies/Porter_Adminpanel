@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Layers, Plus, Search, Edit, Trash2, X, Check, ArrowUp, ArrowDown, Upload, Link as LinkIcon, AlertCircle, ShieldAlert, Sparkles, Filter } from 'lucide-react';
+import { Layers, Plus, Search, Edit, Trash2, X, Check, ArrowUp, ArrowDown, Upload, AlertCircle, ShieldAlert, Sparkles, Filter } from 'lucide-react';
 import { AppStateContext } from '../../context/AppState';
 
 export const CATEGORY_CONFIG = {
@@ -27,6 +27,95 @@ export const CATEGORY_CONFIG = {
 };
 
 
+// Reliable high-resolution vehicle icons fallback dictionary
+export const DEFAULT_VEHICLE_ICONS = {
+  '3-wheeler': 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png',
+  'mini-3w': 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png',
+  '3-wheeler-500kg': 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png',
+  'tata-ace': 'https://cdn-icons-png.flaticon.com/512/2554/2554978.png',
+  'tata-ace-750kg': 'https://cdn-icons-png.flaticon.com/512/2554/2554978.png',
+  'pickup-8ft': 'https://cdn-icons-png.flaticon.com/512/2554/2554978.png',
+  'pickup-1000kg': 'https://cdn-icons-png.flaticon.com/512/2554/2554978.png',
+  'two_wheeler': 'https://cdn-icons-png.flaticon.com/512/2972/2972185.png',
+  'bike': 'https://cdn-icons-png.flaticon.com/512/2972/2972185.png',
+  'scooter': 'https://cdn-icons-png.flaticon.com/512/2972/2972185.png',
+  'packers': 'https://cdn-icons-png.flaticon.com/512/3030/3030336.png',
+  'packers-movers': 'https://cdn-icons-png.flaticon.com/512/3030/3030336.png',
+  'vehicle': 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png'
+};
+
+// Universal image URL resolver guaranteeing absolute domain path
+export const resolveImageUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('data:image/') || url.startsWith('blob:')) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const clean = url.startsWith('/') ? url : `/${url}`;
+  return `https://api.anushaporter.com${clean}`;
+};
+
+// Permanent local storage cache for user-uploaded service icons with multi-key fallback
+export const getCachedServiceImage = (service) => {
+  if (!service) return '';
+  if (typeof service === 'string') {
+    try { return localStorage.getItem(`porter_srv_img_${service}`) || ''; } catch (e) { return ''; }
+  }
+  const keys = [
+    service.serviceId,
+    service.id,
+    service.numericId,
+    service.name ? service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '',
+    service.label ? service.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : ''
+  ].filter(Boolean);
+
+  for (const k of keys) {
+    try {
+      const img = localStorage.getItem(`porter_srv_img_${k}`);
+      if (img) return img;
+    } catch (e) {}
+  }
+  return '';
+};
+
+export const setCachedServiceImage = (service, imgUrl) => {
+  if (!imgUrl) return;
+  const keys = typeof service === 'string' ? [service] : [
+    service?.serviceId,
+    service?.id,
+    service?.numericId,
+    service?.name ? service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '',
+    service?.label ? service.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : ''
+  ].filter(Boolean);
+
+  for (const k of keys) {
+    try {
+      localStorage.setItem(`porter_srv_img_${k}`, imgUrl);
+    } catch (e) {}
+  }
+};
+
+export const getFallbackIcon = (service) => {
+  if (!service) return DEFAULT_VEHICLE_ICONS.vehicle;
+  const name = String(service.name || service.label || service.id || '').toLowerCase();
+  const cat = String(service.category || '').toLowerCase();
+  
+  if (name.includes('3 wheeler') || name.includes('3w') || name.includes('auto') || name.includes('ape') || name.includes('three')) {
+    return DEFAULT_VEHICLE_ICONS['3-wheeler'];
+  }
+  if (name.includes('tata ace') || name.includes('chota hathi') || name.includes('ace')) {
+    return DEFAULT_VEHICLE_ICONS['tata-ace'];
+  }
+  if (name.includes('pickup') || name.includes('8ft') || name.includes('bolero') || name.includes('dost') || name.includes('14ft') || name.includes('truck')) {
+    return DEFAULT_VEHICLE_ICONS['pickup-8ft'];
+  }
+  if (name.includes('bike') || name.includes('scooter') || name.includes('2w') || name.includes('two wheeler') || cat === 'two_wheeler') {
+    return DEFAULT_VEHICLE_ICONS['two_wheeler'];
+  }
+  if (name.includes('packer') || name.includes('mover') || name.includes('shifting') || cat === 'packers') {
+    return DEFAULT_VEHICLE_ICONS['packers'];
+  }
+  return DEFAULT_VEHICLE_ICONS.vehicle;
+};
+
 export default function ServicesModule() {
   const { authFetch, cities: contextCities, franchises, settings } = useContext(AppStateContext);
   const [services, setServices] = useState([]);
@@ -48,7 +137,6 @@ export default function ServicesModule() {
   const [showModal, setShowModal] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [modalTab, setModalTab] = useState('basic'); // basic, pricing, specs, visuals
-  const [uploadType, setUploadType] = useState('file'); // file | url
   const [selectedImageFile, setSelectedImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [isImageRemoved, setIsImageRemoved] = useState(false);
@@ -91,10 +179,11 @@ export default function ServicesModule() {
 
     const catKey = s.category || 'vehicle';
     const catConfig = CATEGORY_CONFIG[catKey] || CATEGORY_CONFIG.vehicle;
-    let resolvedIcon = s.iconUrl || s.imageUrl || s.icon_url || s.image_url || '';
-    if (resolvedIcon.startsWith('https://api.anushaporter.com')) {
-      resolvedIcon = resolvedIcon.replace('https://api.anushaporter.com', '');
-    }
+    
+    // Check server icon, then persistent local cache, then fallback
+    const cached = getCachedServiceImage(s) || getCachedServiceImage(slugId);
+    let rawIcon = s.iconUrl || s.imageUrl || s.icon_url || s.image_url || cached || '';
+    const resolvedIcon = resolveImageUrl(rawIcon) || getFallbackIcon(s);
 
     return {
       ...s,
@@ -214,7 +303,6 @@ export default function ServicesModule() {
         display_order: s.displayOrder || services.length + 1,
         available_cities: Array.isArray(s.availableCities) && s.availableCities.length > 0 ? s.availableCities : ['Hyderabad']
       });
-      setUploadType(existingImg ? 'url' : 'file');
     } else {
       setEditingService(null);
       setImagePreview('');
@@ -238,7 +326,6 @@ export default function ServicesModule() {
         display_order: services.length + 1,
         available_cities: ['Hyderabad']
       });
-      setUploadType('file');
     }
     setModalTab('basic');
     setShowModal(true);
@@ -294,10 +381,9 @@ export default function ServicesModule() {
 
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
-          if (uploadData && uploadData.url) {
-            finalIconUrl = uploadData.url.startsWith('http')
-              ? uploadData.url
-              : `https://api.anushaporter.com${uploadData.url}`;
+          const rawUrl = uploadData?.url || uploadData?.fileUrl || uploadData?.imageUrl || uploadData?.path || '';
+          if (rawUrl) {
+            finalIconUrl = resolveImageUrl(rawUrl);
           }
         } else {
           console.warn('[Image Upload] Server upload failed, using Data URL fallback.');
@@ -404,6 +490,40 @@ export default function ServicesModule() {
       console.log(`[Service ${method}] Response Status:`, res.status);
 
       if (res.ok) {
+        if (finalIconUrl) {
+          setCachedServiceImage(servicePayload, finalIconUrl);
+          setCachedServiceImage(slugId, finalIconUrl);
+          if (editingService) {
+            setCachedServiceImage(editingService, finalIconUrl);
+          }
+        }
+
+        // Instant UI update (support both edit and create)
+        setServices(prev => {
+          if (editingService) {
+            return prev.map(item => {
+              if (item.id === slugId || item.numericId === targetEndpointId || item.serviceId === slugId || item.name === servicePayload.name) {
+                return {
+                  ...item,
+                  ...servicePayload,
+                  icon_url: finalIconUrl || servicePayload.icon_url,
+                  iconUrl: finalIconUrl || servicePayload.iconUrl,
+                  imageUrl: finalIconUrl || servicePayload.imageUrl
+                };
+              }
+              return item;
+            });
+          } else {
+            const newServiceItem = {
+              ...servicePayload,
+              icon_url: finalIconUrl || servicePayload.icon_url,
+              iconUrl: finalIconUrl || servicePayload.iconUrl,
+              imageUrl: finalIconUrl || servicePayload.imageUrl
+            };
+            return [...prev, newServiceItem];
+          }
+        });
+
         handleCloseModal();
         await fetchServices();
       } else {
@@ -441,18 +561,58 @@ export default function ServicesModule() {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this service from database?')) {
-      const targetService = services.find(s => s.id === id || s.serviceId === id || s.numericId === id);
-      const targetId = targetService?.numericId || targetService?.serviceId || id;
-      
-      setServices(prev => prev.filter(s => s.id !== id && s.serviceId !== id && s.numericId !== id));
+    const targetService = services.find(s => s.id === id || s.serviceId === id || s.numericId === id);
+    const serviceName = targetService?.name || targetService?.label || id;
+    
+    if (!window.confirm(`Are you sure you want to permanently delete "${serviceName}"?`)) {
+      return;
+    }
+
+    const candidateIds = Array.from(new Set([
+      targetService?.serviceId,
+      targetService?.id,
+      targetService?.numericId,
+      id
+    ])).filter(Boolean);
+
+    // Optimistic UI removal
+    setServices(prev => prev.filter(s => s.id !== id && s.serviceId !== id && s.numericId !== id));
+
+    let deleted = false;
+    for (const testId of candidateIds) {
       try {
-        await authFetch(`/api/admin/services/${targetId}`, { method: 'DELETE' });
-        await fetchServices();
+        const res = await authFetch(`/api/admin/services/${testId}`, { method: 'DELETE' });
+        if (res.ok) {
+          deleted = true;
+          break;
+        }
       } catch (e) {
-        console.error('Delete service error:', e);
-        await fetchServices();
+        console.warn(`[Delete] Attempt with ${testId} error:`, e);
       }
+    }
+
+    // If /api/admin/services failed, try fallback /api/services/{id}
+    if (!deleted) {
+      for (const testId of candidateIds) {
+        try {
+          const res = await authFetch(`/api/services/${testId}`, { method: 'DELETE' });
+          if (res.ok) {
+            deleted = true;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (deleted) {
+      // Clear persistent image cache for this service
+      candidateIds.forEach(k => {
+        try { localStorage.removeItem(`porter_srv_img_${k}`); } catch (e) {}
+      });
+      await fetchServices();
+    } else {
+      alert(`Could not delete service "${serviceName}" from database. Server rejected the request.`);
+      await fetchServices();
     }
   };
 
@@ -641,24 +801,17 @@ export default function ServicesModule() {
                   {/* Icon Thumbnail */}
                   <td>
                     <div style={{ width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', backgroundColor: service.bg_tint || '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                      {service.icon_url ? (
-                        <>
-                          <img 
-                            src={service.icon_url} 
-                            alt={service.name} 
-                            style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} 
-                            onError={(e) => { 
-                              e.target.style.display = 'none'; 
-                              if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; 
-                            }} 
-                          />
-                          <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                            <Layers size={22} color="var(--primary)" />
-                          </div>
-                        </>
-                      ) : (
-                        <Layers size={22} color="var(--primary)" />
-                      )}
+                      <img 
+                        src={service.icon_url || getFallbackIcon(service)} 
+                        alt={service.name} 
+                        style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} 
+                        onError={(e) => { 
+                          const fb = getFallbackIcon(service);
+                          if (e.target.src !== fb) {
+                            e.target.src = fb;
+                          }
+                        }} 
+                      />
                     </div>
                   </td>
 
@@ -715,12 +868,12 @@ export default function ServicesModule() {
                   </td>
 
                   {/* Action Buttons */}
-                  <td style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <td style={{ textAlign: 'right', minWidth: '100px', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
                       <button className="action-btn btn-view" onClick={() => handleOpenModal(service)} title="Edit Service">
                         <Edit size={16} />
                       </button>
-                      <button className="action-btn" style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }} onClick={() => handleDelete(service.id)} title="Delete Service">
+                      <button className="action-btn" style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', cursor: 'pointer' }} onClick={() => handleDelete(service.id)} title="Delete Service">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -953,76 +1106,35 @@ export default function ServicesModule() {
               {modalTab === 'visuals' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>Service Icon / 3D Illustration</label>
-                    
-                    {/* Method Selector */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                      <button
-                        type="button"
-                        className={`btn ${uploadType === 'file' ? 'btn-primary' : ''}`}
-                        style={{ flex: 1, padding: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', border: '1px solid var(--border-color)', background: uploadType === 'file' ? undefined : 'var(--bg-main)' }}
-                        onClick={() => setUploadType('file')}
-                      >
-                        <Upload size={14} /> Upload Image File
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn ${uploadType === 'url' ? 'btn-primary' : ''}`}
-                        style={{ flex: 1, padding: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', border: '1px solid var(--border-color)', background: uploadType === 'url' ? undefined : 'var(--bg-main)' }}
-                        onClick={() => setUploadType('url')}
-                      >
-                        <LinkIcon size={14} /> Image URL (Link)
-                      </button>
-                    </div>
-
-                    {uploadType === 'file' ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageFileChange}
-                          style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', backgroundColor: 'var(--bg-main)', fontSize: '13px' }}
-                        />
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Upload PNG, JPG, WebP, or SVG. Recommended: 512x512 with transparent background.</span>
-                      </div>
-                    ) : (
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>
+                      Upload Service Image / Icon <span style={{ color: '#DC2626' }}>*</span>
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <input
-                        type="text"
-                        value={formData.icon_url}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormData(prev => ({ ...prev, icon_url: val }));
-                          setImagePreview(val);
-                          setSelectedImageFile(null);
-                        }}
-                        placeholder="https://cdn.anushaporter.com/services/tata-ace.png or /uploads/..."
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageFileChange}
+                        style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', backgroundColor: 'var(--bg-main)', fontSize: '13px', cursor: 'pointer' }}
                       />
-                    )}
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Upload PNG, JPG, WebP, or SVG. Selected file will be uploaded to backend server and stored permanently.</span>
+                    </div>
                   </div>
 
                   {(imagePreview || formData.icon_url) && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{ width: '60px', height: '60px', borderRadius: '8px', overflow: 'hidden', backgroundColor: formData.bg_tint, border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                          {imagePreview || formData.icon_url ? (
-                            <>
-                              <img 
-                                src={imagePreview || formData.icon_url} 
-                                alt="Preview" 
-                                style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} 
-                                onError={(e) => { 
-                                  e.target.style.display = 'none'; 
-                                  if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; 
-                                }} 
-                              />
-                              <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                                <Layers size={24} color="var(--primary)" />
-                              </div>
-                            </>
-                          ) : (
-                            <Layers size={24} color="var(--primary)" />
-                          )}
+                          <img 
+                            src={imagePreview || formData.icon_url || getFallbackIcon(formData)} 
+                            alt="Preview" 
+                            style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} 
+                            onError={(e) => { 
+                              const fb = getFallbackIcon(formData);
+                              if (e.target.src !== fb) {
+                                e.target.src = fb;
+                              }
+                            }} 
+                          />
                         </div>
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: '600' }}>Icon Preview</div>

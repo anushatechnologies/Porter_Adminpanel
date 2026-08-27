@@ -28,6 +28,13 @@ export default function DriversModule() {
   const [rechargeRef, setRechargeRef] = useState('');
   const [rechargeProcessing, setRechargeProcessing] = useState(false);
 
+  // Reject & Re-upload Request Modal State
+  const [rejectModalDriver, setRejectModalDriver] = useState(null);
+  const [rejectedDocKeys, setRejectedDocKeys] = useState(['license', 'rc']);
+  const [selectedReasonTemplate, setSelectedReasonTemplate] = useState('Blurry or unreadable document photo');
+  const [customRejectionNote, setCustomRejectionNote] = useState('');
+  const [isRejecting, setIsRejecting] = useState(false);
+
   // Fetch wallet history when earnings/wallet tab is selected
   useEffect(() => {
     if (selectedDriver && detailTab === 'earnings' && getDriverWalletHistory) {
@@ -83,11 +90,49 @@ export default function DriversModule() {
     }
   };
 
-  const handleReject = (id) => {
-    rejectDriverVerification(id);
-    if (selectedDriver && selectedDriver.id === id) {
-      setSelectedDriver(prev => ({ ...prev, status: 'rejected', docs: { ...prev.docs, verified: false, license: 'Rejected', rc: 'Rejected' } }));
+  const openRejectModal = (driver) => {
+    setRejectModalDriver(driver);
+    setRejectedDocKeys(['license', 'rc']);
+    setSelectedReasonTemplate('Blurry or unreadable document photo');
+    setCustomRejectionNote('');
+  };
+
+  const handleConfirmRejection = (e) => {
+    e.preventDefault();
+    if (!rejectModalDriver) return;
+    if (rejectedDocKeys.length === 0) {
+      alert('Please select at least one document to mark for re-upload.');
+      return;
     }
+    const finalReason = selectedReasonTemplate === 'Custom Reason' 
+      ? (customRejectionNote.trim() || 'Documents invalid. Please re-upload clear copies.')
+      : (customRejectionNote.trim() ? `${selectedReasonTemplate} - ${customRejectionNote.trim()}` : selectedReasonTemplate);
+
+    setIsRejecting(true);
+    rejectDriverVerification(rejectModalDriver.id, {
+      reason: finalReason,
+      rejectedDocs: rejectedDocKeys,
+      notes: customRejectionNote,
+      requireReupload: true
+    });
+
+    if (selectedDriver && (selectedDriver.id === rejectModalDriver.id || selectedDriver.driverId === rejectModalDriver.id)) {
+      const updatedDocs = { ...(selectedDriver.docs || {}), verified: false };
+      if (rejectedDocKeys.includes('license')) updatedDocs.license = 'Rejected';
+      if (rejectedDocKeys.includes('rc')) updatedDocs.rc = 'Rejected';
+      setSelectedDriver(prev => ({
+        ...prev,
+        status: 'rejected',
+        kyc: 'rejected',
+        rejectionReason: finalReason,
+        requireReupload: true,
+        docs: updatedDocs
+      }));
+    }
+
+    setIsRejecting(false);
+    setRejectModalDriver(null);
+    alert(`🚫 Driver verification rejected.\n\nDriver "${rejectModalDriver.name}" has been requested to re-upload: ${rejectedDocKeys.map(k => k.toUpperCase()).join(', ')}.`);
   };
 
   // Get completed orders for selected driver
@@ -249,8 +294,8 @@ export default function DriversModule() {
                           <button
                             className="action-btn"
                             style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
-                            title="Reject Driver"
-                            onClick={() => handleReject(driver.id)}
+                            title="Reject & Request Re-upload"
+                            onClick={() => openRejectModal(driver)}
                           >
                             <X size={16} />
                           </button>
@@ -576,7 +621,7 @@ export default function DriversModule() {
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => handleApprove(selectedDriver.id)}>Approve</button>
-                        <button className="btn btn-danger" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => handleReject(selectedDriver.id)}>Reject</button>
+                        <button className="btn btn-danger" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => openRejectModal(selectedDriver)}>Reject & Request Re-upload</button>
                       </div>
                     </div>
                   )}
@@ -839,6 +884,136 @@ export default function DriversModule() {
                   disabled={rechargeProcessing}
                 >
                   {rechargeProcessing ? 'Processing...' : 'Confirm Wallet Recharge'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── REJECT & REQUEST RE-UPLOAD MODAL ─── */}
+      {rejectModalDriver && (
+        <div className="modal-backdrop" onClick={() => setRejectModalDriver(null)}>
+          <div className="modal-container" style={{ maxWidth: '540px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <div>
+                <h3 className="modal-title" style={{ color: '#DC2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldAlert size={20} color="#DC2626" /> Reject Documents & Request Re-upload
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Driver: <strong>{rejectModalDriver.name}</strong> ({rejectModalDriver.phone})
+                </p>
+              </div>
+              <button className="modal-close-btn" onClick={() => setRejectModalDriver(null)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmRejection} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Notice Banner */}
+              <div style={{ padding: '12px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', fontSize: '12px', color: '#991B1B', lineHeight: '1.5' }}>
+                ℹ️ The driver will receive an in-app alert prompt on their <strong>Driver Mobile App</strong> with this rejection reason and will be required to re-upload clear document scans before verification can be approved.
+              </div>
+
+              {/* Document Selection Checkboxes */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>
+                  Select Documents to Mark for Re-upload <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {[
+                    { key: 'license', label: 'Driving License (DL)' },
+                    { key: 'rc', label: 'Vehicle Registration (RC)' },
+                    { key: 'aadhaar', label: 'Aadhaar Card' },
+                    { key: 'permit', label: 'Commercial Road Permit' }
+                  ].map(doc => {
+                    const isChecked = rejectedDocKeys.includes(doc.key);
+                    return (
+                      <label
+                        key={doc.key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 12px',
+                          borderRadius: '6px',
+                          border: isChecked ? '1px solid #F87171' : '1px solid var(--border-color)',
+                          backgroundColor: isChecked ? '#FFF1F2' : 'var(--bg-main)',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: isChecked ? '700' : '500',
+                          color: isChecked ? '#991B1B' : 'var(--text-color)'
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            if (isChecked) {
+                              setRejectedDocKeys(prev => prev.filter(k => k !== doc.key));
+                            } else {
+                              setRejectedDocKeys(prev => [...prev, doc.key]);
+                            }
+                          }}
+                          style={{ accentColor: '#DC2626' }}
+                        />
+                        {doc.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Pre-defined Rejection Reason Quick Chips */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>
+                  Primary Rejection Reason
+                </label>
+                <select
+                  value={selectedReasonTemplate}
+                  onChange={(e) => setSelectedReasonTemplate(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px', backgroundColor: 'var(--surface)' }}
+                >
+                  <option value="Blurry or unreadable document photo">📷 Blurry or unreadable document photo</option>
+                  <option value="Document has expired / validity ended">📅 Document has expired / validity ended</option>
+                  <option value="Name / details mismatch between License and RC">⚠️ Name / details mismatch between License and RC</option>
+                  <option value="Document image cropped / edges not visible">✂️ Document image cropped / edges not visible</option>
+                  <option value="Invalid / unverified document copy">❌ Invalid / unverified document copy</option>
+                  <option value="Custom Reason">✏️ Custom Specific Reason (Write below)</option>
+                </select>
+              </div>
+
+              {/* Custom Note for Driver */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>
+                  Operator Instructions to Driver (Optional)
+                </label>
+                <textarea
+                  rows="3"
+                  value={customRejectionNote}
+                  onChange={(e) => setCustomRejectionNote(e.target.value)}
+                  placeholder="e.g. Please capture the original physical driving license in good lighting with all 4 corners and license number clearly visible..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '12px', resize: 'vertical' }}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setRejectModalDriver(null)}
+                  disabled={isRejecting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-danger"
+                  style={{ backgroundColor: '#DC2626', borderColor: '#DC2626', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  disabled={isRejecting || rejectedDocKeys.length === 0}
+                >
+                  {isRejecting ? 'Rejecting...' : 'Confirm Rejection & Request Re-upload'}
                 </button>
               </div>
             </form>
