@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import {
   Package, LayoutDashboard, Layers, MapPin, Clock, ShoppingBag,
   Wrench, Truck, Calculator, Tag, FileText, Users, Navigation,
-  CheckSquare, AlertOctagon, DollarSign, MessageSquare, Bell, Sliders
+  CheckSquare, AlertOctagon, DollarSign, MessageSquare, Bell, Sliders, Zap
 } from 'lucide-react';
 import { PackersMoversProvider, PackersMoversContext } from './PackersMoversContext';
 import PMDashboard from './sections/PMDashboard';
@@ -25,6 +25,7 @@ import PMPaymentsLedger from './sections/PMPaymentsLedger';
 import PMComplaintsReviews from './sections/PMComplaintsReviews';
 import PMNotificationSettings from './sections/PMNotificationSettings';
 import PMAppSettings from './sections/PMAppSettings';
+import PMApiIntegration from './sections/PMApiIntegration';
 import BookingDetailModal from './components/BookingDetailModal';
 import QuoteEditorModal from './components/QuoteEditorModal';
 import TeamAssignModal from './components/TeamAssignModal';
@@ -49,7 +50,8 @@ const SUB_MODULES = [
   { id: 'cancellations', name: 'Cancellations & Refunds', icon: AlertOctagon, category: 'Settings & Rules' },
   { id: 'complaints', name: 'Complaints & Reviews', icon: MessageSquare, category: 'Settings & Rules' },
   { id: 'notifications', name: 'SMS & Alerts', icon: Bell, category: 'Settings & Rules' },
-  { id: 'app_settings', name: 'User App Settings', icon: Sliders, category: 'Settings & Rules' }
+  { id: 'app_settings', name: 'User App Settings', icon: Sliders, category: 'Settings & Rules' },
+  { id: 'api_integration', name: 'API Integration', icon: Zap, category: 'Developer Tools' }
 ];
 
 function InnerPackersMoversContent() {
@@ -101,6 +103,8 @@ function InnerPackersMoversContent() {
         return <PMNotificationSettings />;
       case 'app_settings':
         return <PMAppSettings />;
+      case 'api_integration':
+        return <PMApiIntegration />;
       default:
         return <PMDashboard setActiveSubTab={setActiveSubTab} onOpenBooking={setOpenedBooking} />;
     }

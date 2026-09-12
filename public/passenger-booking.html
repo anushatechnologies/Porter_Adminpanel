@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anusha Porter — Passenger Car Booking (Customer Flow)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --primary: #1E5DFF;
+      --primary-dark: #0A4BE2;
+      --bg-page: #F8FAFC;
+      --bg-card: #FFFFFF;
+      --border: #E2E8F0;
+      --text: #0F172A;
+      --text-muted: #64748B;
+      --success: #10B981;
+      --danger: #EF4444;
+      --warning: #F59E0B;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+    body { background: var(--bg-page); color: var(--text); padding: 24px; min-height: 100vh; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge-blue { background: #EFF6FF; color: #1D4ED8; }
+    .badge-green { background: #ECFDF5; color: #047857; }
+    .badge-yellow { background: #FEF3C7; color: #B45309; }
+    .badge-red { background: #FEE2E2; color: #B91C1C; }
+    
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 20px; }
+    .card-title { font-size: 16px; font-weight: 800; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    
+    .grid-2 { display: grid; grid-templateColumns: 1fr 1fr; gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    label { font-size: 12px; font-weight: 700; color: var(--text); }
+    input, select { padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; outline: none; background: #FFF; width: 100%; transition: border 0.2s; }
+    input:focus, select:focus { border-color: var(--primary); }
+    
+    .vehicle-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 16px 0; }
+    .vehicle-card { border: 2px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.2s ease; text-align: center; background: #FFF; }
+    .vehicle-card:hover { border-color: #93C5FD; transform: translateY(-2px); }
+    .vehicle-card.selected { border-color: var(--primary); background: #EFF6FF; box-shadow: 0 4px 12px rgba(30,93,255,0.12); }
+    .vehicle-img { width: 48px; height: 48px; object-fit: contain; margin: 0 auto 8px; }
+    .vehicle-name { font-size: 14px; font-weight: 700; }
+    .vehicle-caps { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: center; gap: 8px; }
+
+    .btn { padding: 12px 20px; border-radius: 10px; border: none; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.15s; }
+    .btn-primary { background: var(--primary); color: #FFF; width: 100%; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-secondary { background: #F1F5F9; color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #FEE2E2; color: #DC2626; border: 1px solid #FCA5A5; }
+
+    .alert { padding: 14px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+    .alert-error { background: #FEF2F2; border: 1px solid #FCA5A5; color: #B91C1C; }
+    .alert-success { background: #F0FDF4; border: 1px solid #86EFAC; color: #15803D; }
+
+    .receipt-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; border-bottom: 1px dashed #E2E8F0; }
+    .receipt-total { display: flex; justify-content: space-between; padding: 12px 0 0; font-size: 18px; font-weight: 800; color: var(--primary); }
+
+    .stepper { display: flex; justify-content: space-between; margin: 24px 0; position: relative; }
+    .step { text-align: center; flex: 1; position: relative; }
+    .step-num { width: 32px; height: 32px; border-radius: 50%; background: #E2E8F0; color: #64748B; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 6px; font-size: 12px; }
+    .step.active .step-num { background: var(--primary); color: #FFF; box-shadow: 0 0 0 4px rgba(30,93,255,0.2); }
+    .step.done .step-num { background: var(--success); color: #FFF; }
+    .step-text { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+    .step.active .step-text { color: var(--primary); font-weight: 700; }
+
+    .network-console { background: #0F172A; color: #E2E8F0; border-radius: 12px; padding: 16px; font-family: monospace; font-size: 11px; max-height: 220px; overflow-y: auto; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="brand">
+        <div style="width:40px; height:40px; background:linear-gradient(135deg, #1E5DFF, #0A4BE2); border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:900; font-size:18px;">
+          AP
+        </div>
+        <div>
+          <h1 style="font-size:18px; font-weight:800;">Anusha Porter &bull; Passenger Car Booking</h1>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">Flow 1: Customer Booking, Fare Estimate & Live Ride Tracking</p>
+        </div>
+      </div>
+      <div>
+        <span class="badge badge-blue">API: Port 8090</span>
+        <a href="/passenger-admin.html" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none; margin-left:12px;">Go to Admin Flow &rarr;</a>
+      </div>
+    </div>
+
+    <!-- Stepper Navigation -->
+    <div class="stepper">
+      <div class="step active" id="step-nav-1"><div class="step-num">1</div><div class="step-text">Estimate & Capacity</div></div>
+      <div class="step" id="step-nav-2"><div class="step-num">2</div><div class="step-text">Fare Breakdown</div></div>
+      <div class="step" id="step-nav-3"><div class="step-num">3</div><div class="step-text">Confirm Booking</div></div>
+      <div class="step" id="step-nav-4"><div class="step-num">4</div><div class="step-text">Live Ride Tracking</div></div>
+    </div>
+
+    <!-- Capacity Warning Alert (Dynamic) -->
+    <div id="capacity-alert" class="alert alert-error" style="display:none;">
+      <span>⚠️ <strong>Capacity Exceeded:</strong> <span id="capacity-alert-msg">Please select a larger vehicle for this number of passengers.</span></span>
+    </div>
+
+    <!-- STEP 1: FORM & CAPACITY CHECK -->
+    <div class="card" id="card-step-1">
+      <div class="card-title">1. Trip Parameters & Vehicle Category</div>
+      
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Passenger Service Type</label>
+          <select id="serviceType" onchange="onServiceChange()">
+            <option value="ONE_WAY">One-Way City Ride</option>
+            <option value="ROUND_TRIP">Round Trip Outstation</option>
+            <option value="RENTAL">Hourly Rental Packages</option>
+            <option value="AIRPORT">Airport Transfer</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="rentalPkgGroup" style="display:none;">
+          <label>Select Rental Package</label>
+          <select id="rentalPackageId">
+            <option value="pkg_2h_20k">2 Hours / 20 KM</option>
+            <option value="pkg_4h_40k">4 Hours / 40 KM</option>
+            <option value="pkg_8h_80k">8 Hours / 80 KM (Full Day)</option>
+            <option value="pkg_12h_120k">12 Hours / 120 KM</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Pickup Location</label>
+          <input type="text" id="pickupAddress" value="Hitec City Cyber Towers, Hyderabad" />
+        </div>
+        <div class="form-group">
+          <label>Drop-off Location</label>
+          <input type="text" id="dropAddress" value="Rajiv Gandhi International Airport (RGIA)" />
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Passenger Count (Enforces Vehicle Limit)</label>
+          <input type="number" id="passengerCount" min="1" max="10" value="2" onchange="validateCapacityLive()" />
+        </div>
+        <div class="form-group">
+          <label>Luggage Count</label>
+          <input type="number" id="luggageCount" min="0" max="8" value="2" />
+        </div>
+      </div>
+
+      <label style="margin-top:8px; display:block;">Select Vehicle Category (Capacities validated via GET /api/passenger/vehicles)</label>
+      <div class="vehicle-grid" id="vehiclesContainer">
+        <!-- Injected dynamically -->
+      </div>
+
+      <div class="grid-2" style="margin-top:14px;">
+        <div class="form-group">
+          <label>Coupon Code (Optional)</label>
+          <input type="text" id="couponCode" placeholder="e.g. WELCOME100, AIRPORT50" value="WELCOME100" />
+        </div>
+        <div class="form-group" style="display:flex; justify-content:flex-end; align-items:flex-end;">
+          <button class="btn btn-primary" onclick="handleGetFareEstimate()">
+            Calculate Fare Estimate & Check Capacity &rarr;
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: FARE ESTIMATE BREAKDOWN & 5-MIN QUOTE LOCK -->
+    <div class="card" id="card-step-2" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div class="card-title" style="margin:0;">2. Fare Estimate & Locked Token</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="badge badge-green" id="fareLockTimer">⏱️ Quote Locked: 05:00</span>
+          <span class="badge badge-blue" id="pricingVersionTag">PV-2026-09-07-01</span>
+        </div>
+      </div>
+
+      <div style="background:#F8FAFC; border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-size:12px; color:var(--text-muted);">Fare Token (Cryptographically Locked):</span>
+          <code id="fareTokenDisplay" style="font-size:12px; font-weight:700; color:var(--primary);">FT-XXXXXXXX</code>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span style="font-size:12px; color:var(--text-muted);">Route Estimate:</span>
+          <strong id="routeDistanceDisplay" style="font-size:12px;">18.5 KM &bull; ~38 mins</strong>
+        </div>
+      </div>
+
+      <div id="receiptContainer">
+        <!-- Itemized receipt injected -->
+      </div>
+
+      <div style="display:flex; gap:12px; margin-top:20px;">
+        <button class="btn btn-secondary" onclick="showStep(1)">&larr; Adjust Parameters</button>
+        <button class="btn btn-primary" onclick="showStep(3)">Confirm Details & Create Booking &rarr;</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: CONFIRM PASSENGER DETAILS & CREATE BOOKING -->
+    <div class="card" id="card-step-3" style="display:none;">
+      <div class="card-title">3. Passenger Details & Payment Mode</div>
+      
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Passenger Full Name</label>
+          <input type="text" id="passengerName" value="Kavita Reddy" />
+        </div>
+        <div class="form-group">
+          <label>Mobile Number</label>
+          <input type="text" id="passengerPhone" value="+91 98490 12345" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Payment Method</label>
+        <select id="paymentMode">
+          <option value="ONLINE">UPI / Online Netbanking (Instant)</option>
+          <option value="WALLET">Anusha Porter Wallet</option>
+          <option value="CASH">Cash to Driver on Drop-off</option>
+        </select>
+      </div>
+
+      <div style="display:flex; gap:12px; margin-top:20px;">
+        <button class="btn btn-secondary" onclick="showStep(2)">&larr; Back to Breakdown</button>
+        <button class="btn btn-primary" onclick="handleConfirmBooking()">
+          🚀 POST /api/passenger/bookings (Dispatch Ride)
+        </button>
+      </div>
+    </div>
+
+    <!-- STEP 4: LIVE RIDE TRACKING & POLLING -->
+    <div class="card" id="card-step-4" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div class="card-title" style="margin:0;">4. Live Ride Tracking</div>
+        <span class="badge badge-yellow" id="bookingStatusBadge">DRIVER_SEARCHING</span>
+      </div>
+
+      <div style="text-align:center; padding:20px 0;">
+        <div style="font-size:28px; font-weight:900; color:var(--primary);" id="trackingIdDisplay">PB-982142</div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">Immutable fare breakdown and driver assignment locked in database</p>
+      </div>
+
+      <!-- Driver Assignment Card (Dynamic) -->
+      <div id="driverCard" style="display:none; background:#F8FAFC; border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150" alt="" style="width:48px; height:48px; border-radius:50%; object-fit:cover;" />
+          <div style="flex:1;">
+            <div style="font-weight:800; font-size:15px;" id="driverName">Ramesh Kumar</div>
+            <div style="font-size:12px; color:var(--text-muted);">⭐ 4.9 &bull; <span id="driverPlate">TS 09 AB 1234</span></div>
+          </div>
+          <div>
+            <a id="driverCallBtn" href="tel:+919876543210" class="btn btn-secondary" style="font-size:11px; padding:6px 12px;">📞 Call Driver</a>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px;">
+        <button class="btn btn-danger" onclick="handleCancelTrip()">❌ Cancel Booking</button>
+        <button class="btn btn-primary" onclick="handlePayTrip()">💳 Complete Payment</button>
+      </div>
+
+      <div style="text-align:center; margin-top:16px;">
+        <button class="btn btn-secondary" onclick="resetToNewBooking()" style="font-size:12px;">Book Another Ride</button>
+      </div>
+    </div>
+
+    <!-- Network Console Drawer -->
+    <div class="network-console">
+      <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px solid #334155; padding-bottom:4px;">
+        <strong style="color:#38BDF8;">🌐 Live HTTP Network Inspector (Frontend Integration Trace)</strong>
+        <span id="networkCount">0 requests</span>
+      </div>
+      <div id="networkLogs">
+        <div>[System Initialized] Ready to test Flow 1 Customer APIs against http://localhost:8090</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.port === '8090' ? '' : 'http://localhost:8090';
+    let availableVehicles = [];
+    let selectedVehicleCode = 'SEDAN';
+    let activeEstimate = null;
+    let activeBooking = null;
+    let pollInterval = null;
+    let lockTimerInterval = null;
+
+    function logNetwork(method, endpoint, status, data) {
+      const logs = document.getElementById('networkLogs');
+      const count = document.getElementById('networkCount');
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.style.marginBottom = '6px';
+      div.innerHTML = `<span style="color:#64748B;">[${time}]</span> <strong style="color:${status < 400 ? '#34D399' : '#F87171'};">${method} ${endpoint}</strong> &rarr; <span style="color:#CBD5E1;">${status} (${JSON.stringify(data).slice(0, 80)}...)</span>`;
+      logs.prepend(div);
+    }
+
+    async function loadInitialData() {
+      try {
+        const [vehRes, srvRes] = await Promise.all([
+          fetch(`${API_BASE}/api/passenger/vehicles`).then(r => r.json()),
+          fetch(`${API_BASE}/api/passenger/services`).then(r => r.json())
+        ]);
+
+        if (vehRes.success) {
+          availableVehicles = vehRes.vehicles;
+          renderVehicles();
+        }
+        logNetwork('GET', '/api/passenger/vehicles', 200, vehRes);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderVehicles() {
+      const container = document.getElementById('vehiclesContainer');
+      container.innerHTML = availableVehicles.map(v => `
+        <div class="vehicle-card ${v.code === selectedVehicleCode ? 'selected' : ''}" onclick="selectVehicle('${v.code}')">
+          <img src="${v.image}" class="vehicle-img" alt="" />
+          <div class="vehicle-name">${v.name}</div>
+          <div class="vehicle-caps">
+            <span>👥 Max ${v.maxPassengers}</span>
+            <span>🧳 ${v.maxLuggage}</span>
+          </div>
+          <div style="font-size:12px; font-weight:800; color:var(--primary); margin-top:6px;">₹${v.baseFare} Base</div>
+        </div>
+      `).join('');
+    }
+
+    function selectVehicle(code) {
+      selectedVehicleCode = code;
+      renderVehicles();
+      validateCapacityLive();
+    }
+
+    function onServiceChange() {
+      const s = document.getElementById('serviceType').value;
+      document.getElementById('rentalPkgGroup').style.display = s === 'RENTAL' ? 'block' : 'none';
+    }
+
+    function validateCapacityLive() {
+      const pCount = Number(document.getElementById('passengerCount').value) || 1;
+      const veh = availableVehicles.find(v => v.code === selectedVehicleCode);
+      const alertBox = document.getElementById('capacity-alert');
+
+      if (veh && pCount > veh.maxPassengers) {
+        alertBox.style.display = 'block';
+        document.getElementById('capacity-alert-msg').innerText = 
+          `Please select a larger vehicle for this number of passengers. (${veh.name} max capacity: ${veh.maxPassengers} passengers)`;
+        return false;
+      } else {
+        alertBox.style.display = 'none';
+        return true;
+      }
+    }
+
+    async function handleGetFareEstimate() {
+      const passengerCount = Number(document.getElementById('passengerCount').value) || 1;
+      const luggageCount = Number(document.getElementById('luggageCount').value) || 1;
+      const serviceType = document.getElementById('serviceType').value;
+      const pickupAddress = document.getElementById('pickupAddress').value;
+      const dropAddress = document.getElementById('dropAddress').value;
+      const couponCode = document.getElementById('couponCode').value;
+      const rentalPackageId = document.getElementById('rentalPackageId').value;
+
+      const payload = {
+        serviceType,
+        vehicleCategoryCode: selectedVehicleCode,
+        pickupAddress,
+        dropAddress,
+        passengerCount,
+        luggageCount,
+        couponCode,
+        rentalPackageId
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/passenger/fare-estimate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        logNetwork('POST', '/api/passenger/fare-estimate', res.status, data);
+
+        if (!res.ok) {
+          document.getElementById('capacity-alert').style.display = 'block';
+          document.getElementById('capacity-alert-msg').innerText = data.message || 'Capacity error';
+          return;
+        }
+
+        activeEstimate = data;
+        renderEstimateBreakdown(data);
+        showStep(2);
+        startQuoteTimer();
+      } catch (e) {
+        alert('Network error communicating with API server on port 8090.');
+      }
+    }
+
+    function renderEstimateBreakdown(data) {
+      document.getElementById('fareTokenDisplay').innerText = data.fareToken;
+      document.getElementById('pricingVersionTag').innerText = data.pricingVersion;
+      document.getElementById('routeDistanceDisplay').innerText = `${data.distanceKm} KM &bull; ~${data.durationMinutes} mins`;
+
+      const b = data.breakdown;
+      document.getElementById('receiptContainer').innerHTML = `
+        <div class="receipt-row"><span>Base Fare</span><strong>₹${b.baseFare}</strong></div>
+        <div class="receipt-row"><span>Distance Fare</span><strong>₹${b.distanceFare}</strong></div>
+        <div class="receipt-row"><span>Time Fare</span><strong>₹${b.timeFare}</strong></div>
+        ${b.tollFee > 0 ? `<div class="receipt-row"><span>Tolls & Parking</span><strong>₹${b.tollFee}</strong></div>` : ''}
+        ${b.nightCharge > 0 ? `<div class="receipt-row"><span>Night Surcharge</span><strong>₹${b.nightCharge}</strong></div>` : ''}
+        ${b.discount > 0 ? `<div class="receipt-row" style="color:var(--success);"><span>Promotional Discount</span><strong>-₹${b.discount}</strong></div>` : ''}
+        <div class="receipt-row"><span>GST & Platform Taxes</span><strong>₹${b.taxes}</strong></div>
+        <div class="receipt-total"><span>Total Estimated Fare</span><span>₹${data.estimatedFare}</span></div>
+      `;
+    }
+
+    function startQuoteTimer() {
+      clearInterval(lockTimerInterval);
+      let seconds = 300; // 5 mins
+      lockTimerInterval = setInterval(() => {
+        seconds--;
+        if (seconds <= 0) {
+          clearInterval(lockTimerInterval);
+          document.getElementById('fareLockTimer').innerText = 'Quote Expired';
+          document.getElementById('fareLockTimer').className = 'badge badge-red';
+        } else {
+          const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+          const s = String(seconds % 60).padStart(2, '0');
+          document.getElementById('fareLockTimer').innerText = `⏱️ Quote Locked: ${m}:${s}`;
+        }
+      }, 1000);
+    }
+
+    async function handleConfirmBooking() {
+      if (!activeEstimate) return;
+      const passengerName = document.getElementById('passengerName').value;
+      const passengerPhone = document.getElementById('passengerPhone').value;
+      const paymentMode = document.getElementById('paymentMode').value;
+
+      const payload = {
+        fareToken: activeEstimate.fareToken,
+        serviceType: document.getElementById('serviceType').value,
+        vehicleCategoryCode: selectedVehicleCode,
+        pickupAddress: document.getElementById('pickupAddress').value,
+        dropAddress: document.getElementById('dropAddress').value,
+        passengerName,
+        passengerPhone,
+        passengerCount: Number(document.getElementById('passengerCount').value),
+        luggageCount: Number(document.getElementById('luggageCount').value),
+        paymentMode
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/passenger/bookings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        logNetwork('POST', '/api/passenger/bookings', res.status, data);
+
+        if (res.ok) {
+          activeBooking = data.booking;
+          document.getElementById('trackingIdDisplay').innerText = activeBooking.trackingNumber;
+          showStep(4);
+          startTrackingPoll(activeBooking.id);
+        }
+      } catch (e) {
+        alert('Booking error');
+      }
+    }
+
+    function startTrackingPoll(bookingId) {
+      clearInterval(pollInterval);
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/passenger/bookings/${bookingId}`);
+          const data = await res.json();
+          if (res.ok && data.booking) {
+            activeBooking = data.booking;
+            updateTrackingUI(activeBooking);
+          }
+        } catch (e) {}
+      }, 2500);
+    }
+
+    function updateTrackingUI(b) {
+      const badge = document.getElementById('bookingStatusBadge');
+      badge.innerText = b.status;
+      badge.className = `badge ${
+        b.status === 'COMPLETED' ? 'badge-green' :
+        b.status === 'CANCELLED' ? 'badge-red' :
+        b.status === 'DRIVER_SEARCHING' ? 'badge-yellow' : 'badge-blue'
+      }`;
+
+      if (b.driver) {
+        document.getElementById('driverCard').style.display = 'block';
+        document.getElementById('driverName').innerText = b.driver.name;
+        document.getElementById('driverPlate').innerText = b.driver.vehicleNumber;
+        document.getElementById('driverCallBtn').href = `tel:${b.driver.phone}`;
+      } else {
+        document.getElementById('driverCard').style.display = 'none';
+      }
+    }
+
+    async function handleCancelTrip() {
+      if (!activeBooking) return;
+      const res = await fetch(`${API_BASE}/api/passenger/bookings/${activeBooking.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Customer cancelled from UI' })
+      });
+      const data = await res.json();
+      logNetwork('POST', `/api/passenger/bookings/${activeBooking.id}/cancel`, res.status, data);
+      updateTrackingUI(data.booking);
+    }
+
+    async function handlePayTrip() {
+      if (!activeBooking) return;
+      const res = await fetch(`${API_BASE}/api/passenger/bookings/${activeBooking.id}/payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentStatus: 'PAID', paymentTransactionId: `TXN${Date.now()}` })
+      });
+      const data = await res.json();
+      logNetwork('POST', `/api/passenger/bookings/${activeBooking.id}/payment`, res.status, data);
+      alert('Payment confirmed! Status updated to PAID.');
+    }
+
+    function showStep(stepNum) {
+      [1, 2, 3, 4].forEach(i => {
+        document.getElementById(`card-step-${i}`).style.display = i === stepNum ? 'block' : 'none';
+        const nav = document.getElementById(`step-nav-${i}`);
+        nav.className = `step ${i === stepNum ? 'active' : i < stepNum ? 'done' : ''}`;
+      });
+    }
+
+    function resetToNewBooking() {
+      clearInterval(pollInterval);
+      clearInterval(lockTimerInterval);
+      activeEstimate = null;
+      activeBooking = null;
+      showStep(1);
+    }
+
+    loadInitialData();
+  </script>
+</body>
+</html>

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anusha Porter — Dynamic Pricing & Dispatch Operations (Admin Flow)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --primary: #1E5DFF;
+      --primary-dark: #0A4BE2;
+      --bg-page: #F8FAFC;
+      --bg-card: #FFFFFF;
+      --border: #E2E8F0;
+      --text: #0F172A;
+      --text-muted: #64748B;
+      --success: #10B981;
+      --danger: #EF4444;
+      --warning: #F59E0B;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+    body { background: var(--bg-page); color: var(--text); padding: 24px; min-height: 100vh; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge-blue { background: #EFF6FF; color: #1D4ED8; }
+    .badge-green { background: #ECFDF5; color: #047857; }
+    .badge-yellow { background: #FEF3C7; color: #B45309; }
+    .badge-red { background: #FEE2E2; color: #B91C1C; }
+
+    .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .tab-btn { padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; color: var(--text-muted); }
+    .tab-btn.active { background: var(--primary); color: #FFF; font-weight: 700; }
+
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 20px; }
+    .card-title { font-size: 16px; font-weight: 800; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    label { font-size: 12px; font-weight: 700; color: var(--text); }
+    input, select { padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; outline: none; background: #FFF; width: 100%; }
+
+    .btn { padding: 9px 16px; border-radius: 8px; border: none; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    .btn-primary { background: var(--primary); color: #FFF; }
+    .btn-secondary { background: #F1F5F9; color: var(--text); border: 1px solid var(--border); }
+    .btn-success { background: #10B981; color: #FFF; }
+    .btn-danger { background: #EF4444; color: #FFF; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th { text-align: left; padding: 10px 12px; background: #F8FAFC; color: var(--text-muted); font-weight: 700; border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+
+    .network-console { background: #0F172A; color: #E2E8F0; border-radius: 12px; padding: 16px; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="brand">
+        <div style="width:40px; height:40px; background:linear-gradient(135deg, #1E1B4B, #1E40AF); border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:900; font-size:18px;">
+          AP
+        </div>
+        <div>
+          <h1 style="font-size:18px; font-weight:800;">Anusha Porter &bull; Admin Pricing & Dispatch Operations</h1>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">Flow 2: Dynamic Pricing & Simulator &bull; Flow 3: Dispatch & Status Machine</p>
+        </div>
+      </div>
+      <div>
+        <span class="badge badge-green" id="activeVersionTag">Active: PV-2026-09-07-01</span>
+        <a href="/passenger-booking.html" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none; margin-left:12px;">Go to Customer Flow &rarr;</a>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+      <button class="tab-btn active" id="tab-pricing-btn" onclick="switchTab('pricing')">Flow 2: Dynamic Pricing & Simulator</button>
+      <button class="tab-btn" id="tab-dispatch-btn" onclick="switchTab('dispatch')">Flow 3: Dispatch & Bookings Operations</button>
+      <button class="tab-btn" id="tab-versions-btn" onclick="switchTab('versions')">Version Audit Trail</button>
+    </div>
+
+    <!-- SECTION 1: FLOW 2 - DYNAMIC PRICING & SIMULATOR -->
+    <div id="section-pricing">
+      <!-- Active Vehicle Rates -->
+      <div class="card">
+        <div class="card-title">
+          <span>Active Rate Cards (GET /api/admin/passenger/vehicle-categories)</span>
+          <span style="font-size:12px; color:var(--text-muted); font-weight:500;">Immutable pricing version applied to bookings</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Base Fare</th>
+                <th>Min KM</th>
+                <th>Per KM</th>
+                <th>Per Min</th>
+                <th>Driver Allowance</th>
+                <th>Capacities</th>
+              </tr>
+            </thead>
+            <tbody id="ratesTableBody">
+              <!-- Injected -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Interactive Simulator Sandbox (POST /api/admin/passenger/pricing/preview) -->
+      <div class="card">
+        <div class="card-title">
+          <span>Rate Simulator Sandbox (POST /api/admin/passenger/pricing/preview)</span>
+          <span class="badge badge-yellow">Safe Simulation — Does NOT alter live database</span>
+        </div>
+        
+        <div class="grid-3">
+          <div class="form-group">
+            <label>Service Type</label>
+            <select id="simService">
+              <option value="ONE_WAY">One-Way Ride</option>
+              <option value="ROUND_TRIP">Round Trip Outstation</option>
+              <option value="RENTAL">Hourly Rental</option>
+              <option value="AIRPORT">Airport Transfer</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Vehicle Category</label>
+            <select id="simVehicle">
+              <option value="SEDAN">Sedan</option>
+              <option value="HATCHBACK">Hatchback</option>
+              <option value="SUV">SUV</option>
+              <option value="PREMIUM_SUV">Premium SUV</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Distance (KM)</label>
+            <input type="number" id="simDistance" value="25" />
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="form-group">
+            <label>Duration (Minutes)</label>
+            <input type="number" id="simDuration" value="50" />
+          </div>
+          <div class="form-group">
+            <label>Tolls & Parking (₹)</label>
+            <input type="number" id="simToll" value="40" />
+          </div>
+          <div class="form-group">
+            <label>Night Ride (11 PM - 5 AM)?</label>
+            <select id="simNight">
+              <option value="false">No (Standard Daylight)</option>
+              <option value="true">Yes (+25% Night Surcharge)</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="handleRunSimulator()" style="margin-top:8px;">
+          ⚡ Run Pricing Preview Calculation
+        </button>
+
+        <div id="simResultContainer" style="display:none; margin-top:20px; background:#F8FAFC; border:1px solid var(--border); border-radius:12px; padding:16px;">
+          <h4 style="font-size:13px; font-weight:800; margin-bottom:12px; color:var(--primary);">Simulation Receipt & Split Breakdown</h4>
+          <div id="simReceipt"></div>
+        </div>
+      </div>
+
+      <!-- Update Rates & Publish Immutable Version (POST /api/admin/passenger/pricing/update-and-publish) -->
+      <div class="card">
+        <div class="card-title">
+          <span>Update Rates & Publish Version (POST /api/admin/passenger/pricing/update-and-publish)</span>
+          <span class="badge badge-blue">Generates new immutable version (e.g. PV-2026-09-07-02)</span>
+        </div>
+
+        <div class="grid-3">
+          <div class="form-group">
+            <label>Vehicle to Update</label>
+            <select id="pubVehicle">
+              <option value="SEDAN">Sedan</option>
+              <option value="HATCHBACK">Hatchback</option>
+              <option value="SUV">SUV</option>
+              <option value="PREMIUM_SUV">Premium SUV</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>New Base Fare (₹)</label>
+            <input type="number" id="pubBaseFare" value="320" />
+          </div>
+          <div class="form-group">
+            <label>New Per-KM Rate (₹)</label>
+            <input type="number" id="pubPerKm" value="15" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Reason / Change Notes (Recorded in Audit Log)</label>
+          <input type="text" id="pubReason" value="Fuel price adjustment for festive season" />
+        </div>
+
+        <button class="btn btn-success" onclick="handlePublishVersion()">
+          🚀 Publish New Pricing Version & Write Audit Log
+        </button>
+      </div>
+    </div>
+
+    <!-- SECTION 2: FLOW 3 - DISPATCH & BOOKINGS OPERATIONS -->
+    <div id="section-dispatch" style="display:none;">
+      <div class="card">
+        <div class="card-title">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span>Live Bookings & Dispatch Pool (GET /api/admin/passenger/bookings)</span>
+            <select id="statusFilter" onchange="loadBookings()" style="width:auto; padding:4px 8px; font-size:12px;">
+              <option value="">All Statuses</option>
+              <option value="DRIVER_SEARCHING">DRIVER_SEARCHING</option>
+              <option value="DRIVER_ASSIGNED">DRIVER_ASSIGNED</option>
+              <option value="DRIVER_ARRIVED">DRIVER_ARRIVED</option>
+              <option value="IN_PROGRESS">IN_PROGRESS</option>
+              <option value="COMPLETED">COMPLETED</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary" onclick="loadBookings()">🔄 Refresh</button>
+            <a href="/api/admin/passenger/reports/export-csv" class="btn btn-primary" download>📥 Export CSV</a>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Booking #</th>
+                <th>Service & Vehicle</th>
+                <th>Route</th>
+                <th>Customer</th>
+                <th>Fare</th>
+                <th>Status</th>
+                <th>Assigned Driver</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="bookingsTableBody">
+              <!-- Injected -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3: VERSION AUDIT TRAIL -->
+    <div id="section-versions" style="display:none;">
+      <div class="card">
+        <div class="card-title">Immutable Version History & Audit Log (GET /api/admin/passenger/pricing/history)</div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Admin User</th>
+                <th>Action</th>
+                <th>Version ID</th>
+                <th>Notes / Details</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <!-- Injected -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network Console Drawer -->
+    <div class="network-console">
+      <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px solid #334155; padding-bottom:4px;">
+        <strong style="color:#38BDF8;">🌐 Live HTTP Network Inspector (Admin Trace)</strong>
+        <span id="networkCount">0 requests</span>
+      </div>
+      <div id="networkLogs">
+        <div>[System Initialized] Admin API endpoint tester ready on http://localhost:8090</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.port === '8090' ? '' : 'http://localhost:8090';
+
+    function logNetwork(method, endpoint, status, data) {
+      const logs = document.getElementById('networkLogs');
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.style.marginBottom = '6px';
+      div.innerHTML = `<span style="color:#64748B;">[${time}]</span> <strong style="color:${status < 400 ? '#34D399' : '#F87171'};">${method} ${endpoint}</strong> &rarr; <span style="color:#CBD5E1;">${status} (${JSON.stringify(data).slice(0, 75)}...)</span>`;
+      logs.prepend(div);
+    }
+
+    async function loadRates() {
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/passenger/vehicle-categories`);
+        const data = await res.json();
+        logNetwork('GET', '/api/admin/passenger/vehicle-categories', res.status, data);
+
+        if (res.ok) {
+          const tbody = document.getElementById('ratesTableBody');
+          tbody.innerHTML = data.categories.map(c => `
+            <tr>
+              <td><strong>${c.name}</strong> (${c.code})</td>
+              <td>₹${c.baseFare}</td>
+              <td>${c.baseDistanceKm} KM</td>
+              <td>₹${c.perKmRate} / km</td>
+              <td>₹${c.perMinuteRate} / min</td>
+              <td>₹${c.driverAllowance}</td>
+              <td>${c.maxPassengers} Pax &bull; ${c.maxLuggage} Bags</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {}
+    }
+
+    async function handleRunSimulator() {
+      const serviceType = document.getElementById('simService').value;
+      const vehicleCategoryCode = document.getElementById('simVehicle').value;
+      const distanceKm = document.getElementById('simDistance').value;
+      const durationMinutes = document.getElementById('simDuration').value;
+      const tollFee = document.getElementById('simToll').value;
+      const isNightTime = document.getElementById('simNight').value === 'true';
+
+      const payload = { serviceType, vehicleCategoryCode, distanceKm, durationMinutes, tollFee, isNightTime };
+
+      const res = await fetch(`${API_BASE}/api/admin/passenger/pricing/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logNetwork('POST', '/api/admin/passenger/pricing/preview', res.status, data);
+
+      if (res.ok) {
+        document.getElementById('simResultContainer').style.display = 'block';
+        const r = data.receipt;
+        const s = data.settlement;
+        document.getElementById('simReceipt').innerHTML = `
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div>
+              <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Base Fare:</span><strong>₹${r.baseFare}</strong></div>
+              <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Distance Fare:</span><strong>₹${r.distanceFare}</strong></div>
+              <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Time Fare:</span><strong>₹${r.timeFare}</strong></div>
+              ${r.nightCharge > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Night Surcharge:</span><strong>₹${r.nightCharge}</strong></div>` : ''}
+              <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Taxes (GST):</span><strong>₹${r.taxes}</strong></div>
+              <div style="display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid #CBD5E1; font-size:15px; color:var(--primary); font-weight:800;">
+                <span>Total Customer Fare:</span><span>₹${r.totalFare}</span>
+              </div>
+            </div>
+            <div style="background:#FFF; padding:12px; border-radius:8px; border:1px solid var(--border);">
+              <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Settlement Split</div>
+              <div style="display:flex; justify-content:space-between; margin-top:8px;">
+                <span>Driver Earnings (80%):</span><strong style="color:var(--success);">₹${s.driverEarnings}</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-top:6px;">
+                <span>Platform Commission (20%):</span><strong style="color:var(--primary);">₹${s.companyCommission}</strong>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    async function handlePublishVersion() {
+      const vehicleCategoryCode = document.getElementById('pubVehicle').value;
+      const baseFare = document.getElementById('pubBaseFare').value;
+      const perKmRate = document.getElementById('pubPerKm').value;
+      const reason = document.getElementById('pubReason').value;
+
+      const res = await fetch(`${API_BASE}/api/admin/passenger/pricing/update-and-publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicleCategoryCode, baseFare, perKmRate, reason })
+      });
+      const data = await res.json();
+      logNetwork('POST', '/api/admin/passenger/pricing/update-and-publish', res.status, data);
+
+      if (res.ok) {
+        alert(`✅ ${data.message}`);
+        document.getElementById('activeVersionTag').innerText = `Active: ${data.version.versionId}`;
+        loadRates();
+        loadAudit();
+      }
+    }
+
+    async function loadBookings() {
+      const status = document.getElementById('statusFilter').value;
+      const query = status ? `?status=${status}` : '';
+      const res = await fetch(`${API_BASE}/api/admin/passenger/bookings${query}`);
+      const data = await res.json();
+      logNetwork('GET', `/api/admin/passenger/bookings${query}`, res.status, data);
+
+      if (res.ok) {
+        const tbody = document.getElementById('bookingsTableBody');
+        tbody.innerHTML = data.bookings.map(b => `
+          <tr>
+            <td><strong>${b.trackingNumber}</strong></td>
+            <td>${b.serviceType} &bull; ${b.vehicleCategoryCode}</td>
+            <td style="font-size:11px;">${b.pickupAddress.split(',')[0]} &rarr; ${b.dropAddress.split(',')[0]}</td>
+            <td>${b.passengerName}<br/><span style="font-size:11px; color:var(--text-muted);">${b.passengerPhone}</span></td>
+            <td><strong>₹${b.estimatedFare}</strong></td>
+            <td><span class="badge badge-blue">${b.status}</span></td>
+            <td>${b.driver ? `<strong>${b.driver.name}</strong> (${b.driver.vehicleNumber})` : '<em style="color:var(--text-muted);">Unassigned</em>'}</td>
+            <td style="text-align:right;">
+              ${!b.driver ? `
+                <button class="btn btn-primary" style="padding:4px 8px; font-size:11px;" onclick="assignDriver('${b.id}', 101)">Assign Driver</button>
+              ` : b.status === 'DRIVER_ASSIGNED' ? `
+                <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="updateStatus('${b.id}', 'DRIVER_ARRIVED')">Driver Arrived</button>
+              ` : b.status === 'DRIVER_ARRIVED' ? `
+                <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="updateStatus('${b.id}', 'IN_PROGRESS')">Start Trip</button>
+              ` : b.status === 'IN_PROGRESS' ? `
+                <button class="btn btn-success" style="padding:4px 8px; font-size:11px;" onclick="updateStatus('${b.id}', 'COMPLETED')">Complete Trip</button>
+              ` : '<span style="color:var(--success); font-size:11px; font-weight:700;">Completed</span>'}
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    async function assignDriver(bookingId, driverId) {
+      const res = await fetch(`${API_BASE}/api/admin/passenger/bookings/${bookingId}/assign-driver`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId })
+      });
+      const data = await res.json();
+      logNetwork('PUT', `/api/admin/passenger/bookings/${bookingId}/assign-driver`, res.status, data);
+      loadBookings();
+    }
+
+    async function updateStatus(bookingId, status) {
+      const res = await fetch(`${API_BASE}/api/admin/passenger/bookings/${bookingId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      logNetwork('PUT', `/api/admin/passenger/bookings/${bookingId}/status`, res.status, data);
+      loadBookings();
+    }
+
+    async function loadAudit() {
+      const res = await fetch(`${API_BASE}/api/admin/passenger/pricing/history`);
+      const data = await res.json();
+      if (res.ok) {
+        document.getElementById('auditTableBody').innerHTML = data.history.map(h => `
+          <tr>
+            <td>#${h.id}</td>
+            <td>${new Date(h.timestamp).toLocaleString()}</td>
+            <td><strong>${h.admin}</strong></td>
+            <td><span class="badge badge-blue">${h.action}</span></td>
+            <td><code>${h.versionId}</code></td>
+            <td>${h.details}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function switchTab(tab) {
+      document.getElementById('section-pricing').style.display = tab === 'pricing' ? 'block' : 'none';
+      document.getElementById('section-dispatch').style.display = tab === 'dispatch' ? 'block' : 'none';
+      document.getElementById('section-versions').style.display = tab === 'versions' ? 'block' : 'none';
+
+      document.getElementById('tab-pricing-btn').className = `tab-btn ${tab === 'pricing' ? 'active' : ''}`;
+      document.getElementById('tab-dispatch-btn').className = `tab-btn ${tab === 'dispatch' ? 'active' : ''}`;
+      document.getElementById('tab-versions-btn').className = `tab-btn ${tab === 'versions' ? 'active' : ''}`;
+
+      if (tab === 'dispatch') loadBookings();
+      if (tab === 'versions') loadAudit();
+    }
+
+    loadRates();
+  </script>
+</body>
+</html>

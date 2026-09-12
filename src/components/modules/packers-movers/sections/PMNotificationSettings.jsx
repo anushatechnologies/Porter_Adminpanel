@@ -1,20 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { Bell, Check, Send, Smartphone, Mail, MessageSquare } from 'lucide-react';
-
-const INITIAL_TRIGGERS = [
-  { id: 'trig-1', event: 'Booking Created', sms: true, push: true, email: true, template: 'Hi {customer_name}, your Packers & Movers booking #{booking_id} for {move_date} has been received!' },
-  { id: 'trig-2', event: 'Quote Generated / Revised', sms: true, push: true, email: true, template: 'Hi {customer_name}, your moving quotation for #{booking_id} is ready: ₹{total_amount}. Open app to review & approve.' },
-  { id: 'trig-3', event: 'Payment Successful', sms: true, push: true, email: true, template: 'Payment of ₹{paid_amount} received for booking #{booking_id}. Your slot {time_slot} is now confirmed!' },
-  { id: 'trig-4', event: 'Team Assigned', sms: true, push: true, email: false, template: 'Team {team_name} (Lead: {leader_name}, {leader_phone}) has been assigned to your move #{booking_id}.' },
-  { id: 'trig-5', event: 'Team Arrived & Packing Started', sms: false, push: true, email: false, template: 'Your moving crew has arrived at origin and started packing your inventory items.' },
-  { id: 'trig-6', event: 'Truck Loaded & In Transit', sms: true, push: true, email: false, template: 'Truck {vehicle_number} is now in transit to destination. Track live GPS in the Porter app.' },
-  { id: 'trig-7', event: 'Delivery & Unpacking Completed', sms: true, push: true, email: true, template: 'Your move #{booking_id} is completed! Please verify items and share your service rating.' },
-  { id: 'trig-8', event: 'Booking Cancelled & Refund Processed', sms: true, push: true, email: true, template: 'Booking #{booking_id} cancelled. Refund of ₹{refund_amount} has been processed.' }
-];
+import { PackersMoversContext } from '../PackersMoversContext';
 
 export default function PMNotificationSettings() {
-  const [triggers, setTriggers] = useState(INITIAL_TRIGGERS);
+  const { appSettings, setAppSettings } = useContext(PackersMoversContext);
+  const [triggers, setTriggers] = useState([]);
   const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    if (appSettings?.notificationTriggers && Array.isArray(appSettings.notificationTriggers)) {
+      setTriggers(appSettings.notificationTriggers);
+    } else {
+      setTriggers([]);
+    }
+  }, [appSettings]);
 
   const toggleChannel = (id, channel) => {
     setTriggers(prev => prev.map(t => t.id === id ? { ...t, [channel]: !t[channel] } : t));
@@ -26,8 +25,14 @@ export default function PMNotificationSettings() {
     setIsSaved(false);
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
+    if (setAppSettings) {
+      await setAppSettings({
+        ...appSettings,
+        notificationTriggers: triggers
+      });
+    }
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };

@@ -1,92 +1,269 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { Eye, Check, X, ShieldAlert, Phone, Truck, Star, Award, Wallet, Calendar, ListFilter, Search, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
+import { 
+  Eye, Check, X, ShieldAlert, Phone, Truck, Car, Star, Award, 
+  Calendar, Search, Trash2, Plus, Upload, User, CheckCircle2, 
+  AlertCircle, FileText, RefreshCw, Filter, Layers
+} from 'lucide-react';
 import { AppStateContext } from '../../context/AppState';
 
 export default function DriversModule() {
-  const { drivers, orders, vehicles, approveDriverVerification, rejectDriverVerification, deleteDriver, rechargeDriverWallet, getDriverWalletHistory } = useContext(AppStateContext);
+  const { 
+    drivers: contextDrivers, orders, vehicles, 
+    approveDriverVerification, rejectDriverVerification, deleteDriver, 
+    createDriverManually, updateDriverStatus, uploadDocumentFile, 
+    validateDocumentQuality, uploadDriverPhoto, authFetch 
+  } = useContext(AppStateContext);
 
-  const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('porter_drivers_active_tab') || 'all';
+  // 1. Service Type Tab: 'our-services' | 'passengers'
+  const [serviceTab, setServiceTab] = useState(() => {
+    const path = window.location.pathname.toLowerCase();
+    if (path.includes('/admin/drivers/passengers')) return 'passengers';
+    if (path.includes('/admin/drivers/our-services')) return 'our-services';
+    return localStorage.getItem('porter_drivers_service_tab') || 'our-services';
   });
 
-  useEffect(() => {
-    localStorage.setItem('porter_drivers_active_tab', activeTab);
-    window.dispatchEvent(new Event('storage-update'));
-  }, [activeTab]);
+  // Filter Bar States (status: all | online | offline, kyc: all | approved | pending | rejected)
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [kycFilter, setKycFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Drivers List State from Dedicated Endpoints
+  const [driverList, setDriverList] = useState([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
+
+  // Modals and Drawer State
   const [selectedDriver, setSelectedDriver] = useState(null);
-  const [detailTab, setDetailTab] = useState('overview'); // overview, trips, docs, earnings
+  const [detailTab, setDetailTab] = useState('overview'); // overview | trips | docs
+  const [showAddDriverModal, setShowAddDriverModal] = useState(false);
+  const [isSubmittingDriver, setIsSubmittingDriver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
 
-  // Live Wallet & Transaction Ledger State
-  const [driverWalletLedger, setDriverWalletLedger] = useState(null);
-  const [loadingLedger, setLoadingLedger] = useState(false);
-
-  // Recharge Modal State
-  const [rechargeModalDriver, setRechargeModalDriver] = useState(null);
-  const [rechargeAmount, setRechargeAmount] = useState('500');
-  const [rechargeNotes, setRechargeNotes] = useState('Admin Wallet Top-up');
-  const [rechargeRef, setRechargeRef] = useState('');
-  const [rechargeProcessing, setRechargeProcessing] = useState(false);
-
-  // Reject & Re-upload Request Modal State
+  // Reject Modal State
   const [rejectModalDriver, setRejectModalDriver] = useState(null);
   const [rejectedDocKeys, setRejectedDocKeys] = useState(['license', 'rc']);
   const [selectedReasonTemplate, setSelectedReasonTemplate] = useState('Blurry or unreadable document photo');
   const [customRejectionNote, setCustomRejectionNote] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
 
-  // Fetch wallet history when earnings/wallet tab is selected
-  useEffect(() => {
-    if (selectedDriver && detailTab === 'earnings' && getDriverWalletHistory) {
-      setLoadingLedger(true);
-      getDriverWalletHistory(selectedDriver.id || selectedDriver.driverId)
-        .then(data => {
-          if (data) setDriverWalletLedger(data);
-        })
-        .finally(() => setLoadingLedger(false));
-    }
-  }, [selectedDriver, detailTab]);
-
-  // Filter drivers
-  const filteredDrivers = drivers.filter(driver => {
-    if (activeTab === 'online' && driver.status !== 'online') return false;
-    if (activeTab === 'verification' && driver.status !== 'verification_requests') return false;
-
-    const query = searchQuery.toLowerCase();
-    return (
-      driver.name.toLowerCase().includes(query) ||
-      driver.phone.includes(query) ||
-      driver.vehicleNo.toLowerCase().includes(query)
-    );
+  // Add Driver Form State
+  const [addDriverForm, setAddDriverForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    dob: '',
+    gender: 'Male',
+    serviceType: 'OUR_SERVICES',
+    vehicleType: 'Tata Ace (750kg)',
+    vehicleNumber: '',
+    rcNumber: '',
+    licenseNumber: '',
+    aadhaarNumber: '',
+    addressLine1: '',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    pincode: '',
+    bankName: '',
+    accountHolderName: '',
+    accountNumber: '',
+    ifscCode: '',
+    profilePhotoUri: '',
+    licenseUri: '',
+    rcUri: '',
+    aadhaarUri: '',
+    bankPassbookUri: '',
   });
 
-  const getStatusClass = (status) => {
-    switch (status) {
-      case 'online': return 'badge-online';
-      case 'offline': return 'badge-offline';
-      case 'rejected': return 'badge-cancelled';
-      default: return 'badge-pending';
+  // Keep URL and LocalStorage synchronized when tab changes
+  const handleTabChange = (newTab) => {
+    setServiceTab(newTab);
+    localStorage.setItem('porter_drivers_service_tab', newTab);
+    localStorage.setItem('porter_drivers_active_tab', newTab);
+    const newPath = `/admin/drivers/${newTab}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState(null, '', newPath);
     }
+    window.dispatchEvent(new Event('storage-update'));
   };
 
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'online': return 'Online';
-      case 'offline': return 'Offline';
-      case 'rejected': return 'Rejected';
-      default: return 'Pending Verification';
-    }
+  // Helper to normalize and categorize context drivers if offline fallback is needed
+  const isPassengerDriver = (d) => {
+    const sType = String(d.serviceType || d.serviceCategory || '').toUpperCase();
+    if (sType === 'PASSENGER' || sType.includes('PASSENGER')) return true;
+    const v = String(d.vehicle || d.vehicleType || '').toLowerCase();
+    return v.includes('cab') || v.includes('sedan') || v.includes('hatchback') || v.includes('suv') || v.includes('bike taxi') || v.includes('auto taxi');
   };
+
+  const isOurServicesDriver = (d) => {
+    const sType = String(d.serviceType || d.serviceCategory || '').toUpperCase();
+    if (sType === 'OUR_SERVICES' || sType.includes('OUR_SERVICES') || sType.includes('GOODS')) return true;
+    return !isPassengerDriver(d);
+  };
+
+  const isPendingKYC = (d) => {
+    const k = String(d.kyc || d.kycStatus || d.status || '').toLowerCase();
+    return !d.docs?.verified && (k === 'pending' || k === 'verification_requests' || k === 'unverified');
+  };
+
+  const isApprovedKYC = (d) => {
+    const k = String(d.kyc || d.kycStatus || '').toLowerCase();
+    return d.docs?.verified || k === 'approved' || k === 'verified';
+  };
+
+  const isRejectedKYC = (d) => {
+    const k = String(d.kyc || d.kycStatus || d.status || '').toLowerCase();
+    return k === 'rejected';
+  };
+
+  // Fetch Drivers from the dedicated Backend API:
+  // Tab 1 -> GET /api/admin/drivers/our-services
+  // Tab 2 -> GET /api/admin/drivers/passengers
+  const fetchDrivers = useCallback(async () => {
+    setLoadingDrivers(true);
+    const endpoint = serviceTab === 'passengers'
+      ? '/api/admin/drivers/passengers'
+      : '/api/admin/drivers/our-services';
+
+    const params = new URLSearchParams();
+    if (statusFilter !== 'all') params.append('status', statusFilter);
+    if (kycFilter !== 'all') params.append('kyc', kycFilter);
+    if (searchQuery.trim()) params.append('search', searchQuery.trim());
+
+    const queryString = params.toString();
+    const targetUrl = queryString ? `${endpoint}?${queryString}` : endpoint;
+
+    try {
+      let rawList = null;
+      if (authFetch) {
+        let res = await authFetch(targetUrl).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json();
+          rawList = Array.isArray(data) ? data : (data.drivers || data.data || data.items || []);
+        } else {
+          // Fallback with serviceType query param
+          const fallbackEndpoint = `/api/admin/drivers?serviceType=${serviceTab === 'passengers' ? 'PASSENGER' : 'OUR_SERVICES'}&${queryString}`;
+          let resFallback = await authFetch(fallbackEndpoint).catch(() => null);
+          if (resFallback && resFallback.ok) {
+            const fbData = await resFallback.json();
+            rawList = Array.isArray(fbData) ? fbData : (fbData.drivers || fbData.data || []);
+          }
+        }
+      }
+
+      // If backend returned valid list, map and use it
+      if (Array.isArray(rawList) && rawList.length > 0) {
+        const mapped = rawList.map(d => {
+          const isKycAppr = d.kyc === 'approved' || d.kycStatus === 'approved' || d.kyc === 'verified' || d.kycStatus === 'verified' || d.docs?.verified;
+          const isKycRej = d.kyc === 'rejected' || d.kycStatus === 'rejected' || d.status === 'rejected';
+          const kycLabel = isKycRej ? 'rejected' : isKycAppr ? 'approved' : 'pending';
+
+          return {
+            ...d,
+            id: d.id || d.driverId || `DRV-${Math.floor(100 + Math.random() * 900)}`,
+            driverId: d.driverId || d.id,
+            name: d.name || d.fullName || null,
+            phone: d.phone || d.phoneNumber || 'N/A',
+            email: d.email || '',
+            serviceType: d.serviceType || (serviceTab === 'passengers' ? 'PASSENGER' : 'OUR_SERVICES'),
+            serviceCategory: d.serviceCategory || (serviceTab === 'passengers' ? 'Passenger Rides' : 'Our Services'),
+            vehicle: d.vehicle || d.vehicleType || (serviceTab === 'passengers' ? 'Cab' : 'Tata Ace'),
+            vehicleType: d.vehicleType || d.vehicle || (serviceTab === 'passengers' ? 'Cab' : 'Tata Ace'),
+            vehicleNumber: d.vehicleNumber || d.vehicleNo || 'N/A',
+            status: (d.status || 'offline').toLowerCase(),
+            kyc: kycLabel,
+            kycStatus: kycLabel,
+            rating: d.rating ? String(d.rating) : '4.8',
+            trips: d.trips != null ? d.trips : 0,
+            profilePhotoUri: d.profilePhotoUri || d.avatar || null,
+            docs: d.docs || {
+              verified: isKycAppr,
+              license: isKycAppr ? 'Verified' : isKycRej ? 'Rejected' : 'Pending',
+              rc: isKycAppr ? 'Verified' : isKycRej ? 'Rejected' : 'Pending',
+              licenseUrl: d.licenseUri || d.licenseUrl,
+              rcUrl: d.rcUri || d.rcUrl,
+              aadhaarUrl: d.aadhaarUri || d.aadhaarUrl,
+              bankPassbookUrl: d.bankPassbookUri || d.bankPassbookUrl
+            }
+          };
+        });
+        setDriverList(mapped);
+      } else {
+        // Fallback to filtering contextDrivers
+        let filtered = contextDrivers.filter(d => {
+          if (serviceTab === 'passengers') {
+            return isPassengerDriver(d);
+          } else {
+            return isOurServicesDriver(d);
+          }
+        });
+
+        if (statusFilter !== 'all') {
+          filtered = filtered.filter(d => d.status === statusFilter);
+        }
+
+        if (kycFilter === 'approved') {
+          filtered = filtered.filter(isApprovedKYC);
+        } else if (kycFilter === 'pending') {
+          filtered = filtered.filter(isPendingKYC);
+        } else if (kycFilter === 'rejected') {
+          filtered = filtered.filter(isRejectedKYC);
+        }
+
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          filtered = filtered.filter(d =>
+            (d.name || '').toLowerCase().includes(q) ||
+            (d.phone || '').includes(q) ||
+            (d.email || '').toLowerCase().includes(q) ||
+            (d.vehicleNumber || d.vehicleNo || '').toLowerCase().includes(q) ||
+            (d.vehicleType || d.vehicle || '').toLowerCase().includes(q) ||
+            String(d.id || '').toLowerCase().includes(q)
+          );
+        }
+
+        setDriverList(filtered);
+      }
+    } catch (err) {
+      console.warn('Error fetching drivers from backend:', err);
+    } finally {
+      setLoadingDrivers(false);
+    }
+  }, [serviceTab, statusFilter, kycFilter, searchQuery, contextDrivers, authFetch]);
+
+  useEffect(() => {
+    fetchDrivers();
+  }, [fetchDrivers]);
+
+  // Total counts for top tab badges
+  const ourServicesCount = contextDrivers.filter(isOurServicesDriver).length;
+  const passengersCount = contextDrivers.filter(isPassengerDriver).length;
 
   const handleOpenDetails = (driver) => {
     setSelectedDriver(driver);
     setDetailTab('overview');
   };
 
-  const handleApprove = (id) => {
-    approveDriverVerification(id);
-    if (selectedDriver && selectedDriver.id === id) {
-      setSelectedDriver(prev => ({ ...prev, status: 'online', docs: { ...prev.docs, verified: true, license: 'Verified', rc: 'Verified' } }));
+  const handleApprove = async (driverId) => {
+    const cleanId = String(driverId).replace(/^DRV-/, '');
+    setDriverList(prev => prev.map(d => (d.id === driverId || String(d.id) === cleanId) ? {
+      ...d,
+      status: 'offline',
+      kyc: 'approved',
+      kycStatus: 'approved',
+      docs: { ...(d.docs || {}), license: 'Verified', rc: 'Verified', verified: true }
+    } : d));
+
+    if (selectedDriver && (selectedDriver.id === driverId || String(selectedDriver.id) === cleanId)) {
+      setSelectedDriver(prev => ({
+        ...prev,
+        status: 'offline',
+        kyc: 'approved',
+        kycStatus: 'approved',
+        docs: { ...(prev.docs || {}), license: 'Verified', rc: 'Verified', verified: true }
+      }));
+    }
+
+    if (approveDriverVerification) {
+      await approveDriverVerification(cleanId);
     }
   };
 
@@ -97,234 +274,513 @@ export default function DriversModule() {
     setCustomRejectionNote('');
   };
 
-  const handleConfirmRejection = (e) => {
+  const handleConfirmRejection = async (e) => {
     e.preventDefault();
     if (!rejectModalDriver) return;
     if (rejectedDocKeys.length === 0) {
       alert('Please select at least one document to mark for re-upload.');
       return;
     }
+
     const finalReason = selectedReasonTemplate === 'Custom Reason' 
       ? (customRejectionNote.trim() || 'Documents invalid. Please re-upload clear copies.')
       : (customRejectionNote.trim() ? `${selectedReasonTemplate} - ${customRejectionNote.trim()}` : selectedReasonTemplate);
 
     setIsRejecting(true);
-    rejectDriverVerification(rejectModalDriver.id, {
-      reason: finalReason,
-      rejectedDocs: rejectedDocKeys,
-      notes: customRejectionNote,
-      requireReupload: true
-    });
+    const cleanId = String(rejectModalDriver.id || rejectModalDriver.driverId).replace(/^DRV-/, '');
 
-    if (selectedDriver && (selectedDriver.id === rejectModalDriver.id || selectedDriver.driverId === rejectModalDriver.id)) {
-      const updatedDocs = { ...(selectedDriver.docs || {}), verified: false };
-      if (rejectedDocKeys.includes('license')) updatedDocs.license = 'Rejected';
-      if (rejectedDocKeys.includes('rc')) updatedDocs.rc = 'Rejected';
+    setDriverList(prev => prev.map(d => (d.id === rejectModalDriver.id || String(d.id) === cleanId) ? {
+      ...d,
+      status: 'rejected',
+      kyc: 'rejected',
+      kycStatus: 'rejected',
+      rejectionReason: finalReason,
+      requireReupload: true,
+      docs: { ...(d.docs || {}), verified: false }
+    } : d));
+
+    if (selectedDriver && (selectedDriver.id === rejectModalDriver.id || String(selectedDriver.id) === cleanId)) {
       setSelectedDriver(prev => ({
         ...prev,
         status: 'rejected',
         kyc: 'rejected',
+        kycStatus: 'rejected',
         rejectionReason: finalReason,
         requireReupload: true,
-        docs: updatedDocs
+        docs: { ...(prev.docs || {}), verified: false }
       }));
+    }
+
+    if (rejectDriverVerification) {
+      await rejectDriverVerification(cleanId, {
+        reason: finalReason,
+        rejectedDocs: rejectedDocKeys,
+        notes: customRejectionNote,
+        requireReupload: true
+      });
     }
 
     setIsRejecting(false);
     setRejectModalDriver(null);
-    alert(`🚫 Driver verification rejected.\n\nDriver "${rejectModalDriver.name}" has been requested to re-upload: ${rejectedDocKeys.map(k => k.toUpperCase()).join(', ')}.`);
+    alert(`🚫 Driver verification marked as Rejected.\n\nDriver "${rejectModalDriver.name}" has been notified to re-upload: ${rejectedDocKeys.map(k => k.toUpperCase()).join(', ')}.`);
   };
 
-  // Get completed orders for selected driver
+  const handleDeleteDriver = async (driverId) => {
+    if (window.confirm(`Are you sure you want to permanently delete driver #${driverId}?`)) {
+      setDriverList(prev => prev.filter(d => d.id !== driverId && d.driverId !== driverId));
+      if (deleteDriver) {
+        deleteDriver(driverId);
+      }
+    }
+  };
+
+  const handleDocFileUpload = async (e, fieldKey, docType) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadProgress(prev => ({ ...prev, [fieldKey]: 'validating' }));
+
+    if (validateDocumentQuality) {
+      const valRes = await validateDocumentQuality(file, docType);
+      if (valRes && valRes.valid === false) {
+        alert(`⚠️ Document Notice: ${valRes.message || 'Image quality check failed'}`);
+      }
+    }
+
+    setUploadProgress(prev => ({ ...prev, [fieldKey]: 'uploading' }));
+
+    if (fieldKey === 'profilePhotoUri' && uploadDriverPhoto) {
+      const res = await uploadDriverPhoto(file, '', addDriverForm.phone);
+      if (res && res.success) {
+        setAddDriverForm(prev => ({ ...prev, profilePhotoUri: res.photoUrl }));
+        setUploadProgress(prev => ({ ...prev, [fieldKey]: 'done' }));
+        return;
+      }
+    }
+
+    if (uploadDocumentFile) {
+      const res = await uploadDocumentFile(file);
+      if (res && res.success) {
+        setAddDriverForm(prev => ({ ...prev, [fieldKey]: res.url }));
+        setUploadProgress(prev => ({ ...prev, [fieldKey]: 'done' }));
+      } else {
+        setUploadProgress(prev => ({ ...prev, [fieldKey]: 'error' }));
+      }
+    }
+  };
+
+  const handleCreateDriverSubmit = async (e) => {
+    e.preventDefault();
+    if (!addDriverForm.name.trim() || !addDriverForm.phone.trim()) {
+      alert('Driver Name and Phone Number are required.');
+      return;
+    }
+    setIsSubmittingDriver(true);
+
+    const isPass = serviceTab === 'passengers';
+    const driverPayload = {
+      name: addDriverForm.name.trim(),
+      phone: addDriverForm.phone.trim(),
+      email: addDriverForm.email.trim() || `${addDriverForm.phone.trim()}@porter.in`,
+      dob: addDriverForm.dob || '1995-01-01',
+      gender: addDriverForm.gender || 'Male',
+      serviceType: isPass ? 'PASSENGER' : 'OUR_SERVICES',
+      serviceCategory: isPass ? 'Passenger Rides' : 'Our Services',
+      vehicleType: addDriverForm.vehicleType,
+      vehicle: addDriverForm.vehicleType,
+      vehicleNumber: addDriverForm.vehicleNumber.trim().toUpperCase(),
+      rcNumber: addDriverForm.rcNumber.trim().toUpperCase(),
+      licenseNumber: addDriverForm.licenseNumber.trim().toUpperCase(),
+      aadhaarNumber: addDriverForm.aadhaarNumber.trim(),
+      addressLine1: addDriverForm.addressLine1.trim(),
+      city: addDriverForm.city.trim() || 'Hyderabad',
+      state: addDriverForm.state.trim() || 'Telangana',
+      pincode: addDriverForm.pincode.trim() || '500081',
+      bankName: addDriverForm.bankName.trim(),
+      accountHolderName: addDriverForm.accountHolderName.trim() || addDriverForm.name.trim(),
+      accountNumber: addDriverForm.accountNumber.trim(),
+      ifscCode: addDriverForm.ifscCode.trim().toUpperCase(),
+      status: 'offline',
+      kyc: 'approved',
+      kycStatus: 'approved',
+      profilePhotoUri: addDriverForm.profilePhotoUri,
+      licenseUri: addDriverForm.licenseUri,
+      rcUri: addDriverForm.rcUri,
+      aadhaarUri: addDriverForm.aadhaarUri,
+      bankPassbookUri: addDriverForm.bankPassbookUri,
+    };
+
+    const res = await createDriverManually(driverPayload);
+    setIsSubmittingDriver(false);
+    if (res && res.success) {
+      alert(`✅ Driver "${addDriverForm.name}" created and verified successfully!`);
+      setShowAddDriverModal(false);
+      setAddDriverForm({
+        name: '',
+        phone: '',
+        email: '',
+        dob: '',
+        gender: 'Male',
+        serviceType: isPass ? 'PASSENGER' : 'OUR_SERVICES',
+        vehicleType: isPass ? 'Cab (Sedan)' : 'Tata Ace (750kg)',
+        vehicleNumber: '',
+        rcNumber: '',
+        licenseNumber: '',
+        aadhaarNumber: '',
+        addressLine1: '',
+        city: 'Hyderabad',
+        state: 'Telangana',
+        pincode: '',
+        bankName: '',
+        accountHolderName: '',
+        accountNumber: '',
+        ifscCode: '',
+        profilePhotoUri: '',
+        licenseUri: '',
+        rcUri: '',
+        aadhaarUri: '',
+        bankPassbookUri: '',
+      });
+      setUploadProgress({});
+      fetchDrivers();
+    } else {
+      alert(`⚠️ Failed to create driver: ${res?.message || 'Server error'}`);
+    }
+  };
+
   const getDriverTrips = (name) => {
-    return orders.filter(o => o.driver === name);
+    if (!name) return [];
+    return orders.filter(o => o.driver === name || o.driverName === name);
   };
 
   return (
     <div className="animate-fade">
-      {/* Tabs */}
-      <div className="tab-group">
-        <button className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`} onClick={() => { setActiveTab('all'); setSearchQuery(''); }}>All Drivers ({drivers.length})</button>
-        <button className={`tab-btn ${activeTab === 'online' ? 'active' : ''}`} onClick={() => { setActiveTab('online'); setSearchQuery(''); }}>Online Drivers ({drivers.filter(d => d.status === 'online').length})</button>
-        <button className={`tab-btn ${activeTab === 'verification' ? 'active' : ''}`} onClick={() => { setActiveTab('verification'); setSearchQuery(''); }}>Verification Requests ({drivers.filter(d => d.status === 'verification_requests').length})</button>
+      {/* ─── 1. TOP DEDICATED TABS: OUR SERVICES vs PASSENGER DRIVERS ─── */}
+      <div className="tab-group" style={{ marginBottom: '18px', display: 'flex', gap: '8px' }}>
+        <button
+          type="button"
+          className={`tab-btn ${serviceTab === 'our-services' ? 'active' : ''}`}
+          onClick={() => handleTabChange('our-services')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 20px',
+            fontSize: '13px',
+            fontWeight: '700',
+            borderBottom: serviceTab === 'our-services' ? '3px solid var(--primary)' : '3px solid transparent'
+          }}
+        >
+          <Truck size={17} color={serviceTab === 'our-services' ? 'var(--primary)' : 'currentColor'} />
+          <span>Our Services Drivers (Goods, Freight, Trucks, Parcel)</span>
+          <span className="badge-count" style={{ marginLeft: '4px' }}>
+            {ourServicesCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={`tab-btn ${serviceTab === 'passengers' ? 'active' : ''}`}
+          onClick={() => handleTabChange('passengers')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 20px',
+            fontSize: '13px',
+            fontWeight: '700',
+            borderBottom: serviceTab === 'passengers' ? '3px solid var(--primary)' : '3px solid transparent'
+          }}
+        >
+          <Car size={17} color={serviceTab === 'passengers' ? 'var(--primary)' : 'currentColor'} />
+          <span>Passenger Drivers (Bike Taxi, Auto Taxi, Cabs)</span>
+          <span className="badge-count" style={{ marginLeft: '4px' }}>
+            {passengersCount}
+          </span>
+        </button>
       </div>
 
-      {/* Grid Filters */}
+      {/* ─── 2. FILTERS BAR: STATUS, KYC, SEARCH & ADD BUTTON ─── */}
       <div className="table-container">
-        <div className="table-header-controls">
-          <div className="search-input-wrapper">
-            <Search className="header-search-icon" size={14} />
-            <input
-              type="text"
-              placeholder="Search drivers by name, phone, vehicle..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        <div 
+          className="table-header-controls" 
+          style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            flexWrap: 'wrap', 
+            gap: '12px',
+            marginBottom: '16px' 
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px', flex: 1 }}>
+            {/* Status Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Status:</span>
+              <select
+                className="custom-input"
+                style={{ padding: '6px 12px', fontSize: '13px', width: 'auto', minWidth: '120px' }}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+              </select>
+            </div>
+
+            {/* KYC Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>KYC:</span>
+              <select
+                className="custom-input"
+                style={{ padding: '6px 12px', fontSize: '13px', width: 'auto', minWidth: '130px' }}
+                value={kycFilter}
+                onChange={(e) => setKycFilter(e.target.value)}
+              >
+                <option value="all">All KYC</option>
+                <option value="approved">Approved</option>
+                <option value="pending">Pending</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+
+            {/* Search Input */}
+            <div className="search-input-wrapper" style={{ flex: 1, minWidth: '220px', maxWidth: '380px' }}>
+              <Search className="header-search-icon" size={14} />
+              <input
+                type="text"
+                placeholder="Search ID, Name, Phone, Vehicle..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Refresh Button */}
+            <button
+              type="button"
+              className="action-btn"
+              onClick={fetchDrivers}
+              title="Refresh drivers list"
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <RefreshCw size={15} className={loadingDrivers ? 'animate-spin' : ''} />
+            </button>
           </div>
+
+          {/* Right Action: Add Driver */}
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: '600' }}
+            onClick={() => {
+              setAddDriverForm(prev => ({
+                ...prev,
+                serviceType: serviceTab === 'passengers' ? 'PASSENGER' : 'OUR_SERVICES',
+                vehicleType: serviceTab === 'passengers' ? 'Cab' : 'Tata Ace (750kg)'
+              }));
+              setShowAddDriverModal(true);
+            }}
+          >
+            <Plus size={16} /> Add Driver
+          </button>
         </div>
 
-        {/* Commission Policy & Wallet Header Notice */}
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-          <div style={{ fontSize: '13px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#2563EB', fontWeight: '700' }}>
-              ⚡ 5% Platform Commission
-            </span>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Drivers require <strong>Wallet &gt; ₹0</strong> to appear on the Order Assignment list. 5% commission cut applies per trip.
-            </span>
-          </div>
-
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            Total Fleet Available Balance: {(() => {
-              const total = drivers.reduce((sum, d) => sum + (d.walletBalance != null ? Number(d.walletBalance) : (Number(d.wallet) || 0)), 0);
-              return (
-                <strong style={{ color: total >= 0 ? '#059669' : '#DC2626' }}>
-                  {total < 0 ? `-₹${Math.abs(total).toFixed(2)}` : `₹${total.toFixed(2)}`}
-                </strong>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* Table list */}
+        {/* ─── 3. TABLE: ID | Name | Phone | Vehicle | KYC Status | Online | Actions ─── */}
         <table className="custom-table">
           <thead>
             <tr>
-              <th>Driver Name</th>
+              <th>ID</th>
+              <th>Name</th>
               <th>Phone</th>
-              <th>Vehicle Type</th>
-              <th>Plate Number</th>
-              <th>Available Wallet Balance</th>
-              <th>Status</th>
-              <th>Trips</th>
-              <th>Rating</th>
+              <th>Vehicle</th>
+              <th>KYC Status</th>
+              <th>Online</th>
               <th style={{ textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filteredDrivers.length === 0 ? (
+            {loadingDrivers ? (
               <tr>
-                <td colSpan="8" style={{ textAlignment: 'center', padding: '30px', color: 'var(--text-muted)' }}>
-                  No drivers found.
+                <td colSpan="7" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                  <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto 8px', display: 'block' }} />
+                  Loading {serviceTab === 'passengers' ? 'passenger drivers' : 'our services drivers'}...
+                </td>
+              </tr>
+            ) : driverList.length === 0 ? (
+              <tr>
+                <td colSpan="7" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                  No {serviceTab === 'passengers' ? 'passenger drivers' : 'goods / freight drivers'} found for current filters.
                 </td>
               </tr>
             ) : (
-              filteredDrivers.map(driver => (
-                <tr key={driver.id}>
-                  <td style={{ fontWeight: '700' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#F1F5F9', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {driver.profilePhotoUri && !driver.profilePhotoUri.startsWith('blob:')
-                          ? <img src={driver.profilePhotoUri} alt={driver.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display='none'; }}/>
-                          : <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>{(driver.name || '?')[0].toUpperCase()}</span>
-                        }
-                      </div>
-                      {driver.name}
-                    </div>
-                  </td>
-                  <td>{driver.phone}</td>
-                  <td>{driver.vehicleType || driver.vehicle || 'N/A'}</td>
-                  <td>{driver.vehicleNo}</td>
-                  <td>
-                    {(() => {
-                      const bal = driver.walletBalance != null ? Number(driver.walletBalance) : (Number(driver.wallet) || 0);
-                      const isPositive = bal > 0;
-                      const formatted = bal < 0 
-                        ? `-₹${Math.abs(bal).toFixed(2)}`
-                        : `₹${bal.toFixed(2)}`;
+              driverList.map(driver => {
+                const isOnline = driver.status === 'online';
+                const isKycAppr = driver.kyc === 'approved' || driver.kycStatus === 'approved' || driver.kyc === 'verified' || driver.docs?.verified;
+                const isKycRej = driver.kyc === 'rejected' || driver.kycStatus === 'rejected' || driver.status === 'rejected';
+                const isKycPend = !isKycAppr && !isKycRej;
 
-                      return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontWeight: '700', color: isPositive ? '#059669' : '#DC2626', fontSize: '13px' }}>
-                            {formatted}
-                          </span>
-                          {!isPositive && (
-                            <span className="badge" style={{ backgroundColor: '#FEE2E2', color: '#DC2626', fontSize: '10px', padding: '2px 6px', fontWeight: '700' }}>
-                              {bal < 0 ? 'Negative (Recharge Required)' : '₹0 (Hidden from Assign)'}
+                return (
+                  <tr key={driver.id || driver.driverId}>
+                    {/* ID */}
+                    <td>
+                      <span 
+                        className="badge" 
+                        style={{ 
+                          fontFamily: 'monospace', 
+                          fontWeight: '700', 
+                          fontSize: '11px',
+                          backgroundColor: 'var(--bg-main)',
+                          border: '1px solid var(--border-color)',
+                          color: 'var(--text-main)'
+                        }}
+                      >
+                        {driver.id || driver.driverId || 'DRV-N/A'}
+                      </span>
+                    </td>
+
+                    {/* Name */}
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ 
+                          width: '36px', 
+                          height: '36px', 
+                          borderRadius: '50%', 
+                          overflow: 'hidden', 
+                          backgroundColor: '#F1F5F9', 
+                          flexShrink: 0, 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          border: '1px solid var(--border-color)'
+                        }}>
+                          {driver.profilePhotoUri && !driver.profilePhotoUri.startsWith('blob:') ? (
+                            <img 
+                              src={driver.profilePhotoUri} 
+                              alt={driver.name || 'Driver'} 
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                              onError={e => { e.target.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--primary)' }}>
+                              {(driver.name || 'D')[0].toUpperCase()}
                             </span>
                           )}
                         </div>
-                      );
-                    })()}
-                  </td>
-                  <td>
-                    <span className={`badge ${getStatusClass(driver.status)}`}>
-                      {getStatusText(driver.status)}
-                    </span>
-                  </td>
-                  <td>{driver.trips}</td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
-                      <Star size={14} fill="#F59E0B" color="#F59E0B" /> {driver.rating > 0 ? parseFloat(driver.rating).toFixed(1) : 'N/A'}
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <div className="action-row" style={{ justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        className="action-btn"
-                        style={{ color: '#2563EB', backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', padding: '4px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}
-                        title="Recharge Driver Wallet"
-                        onClick={() => {
-                          setRechargeModalDriver(driver);
-                          setRechargeAmount('500');
-                        }}
-                      >
-                        <Wallet size={14} /> Recharge
-                      </button>
+                        <div>
+                          <div style={{ fontWeight: '700', color: 'var(--text-main)' }}>
+                            {driver.name ? driver.name : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>null</span>}
+                          </div>
+                          {driver.email && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{driver.email}</div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
 
-                      <button
-                        className="action-btn btn-view"
-                        title="View Details"
-                        onClick={() => handleOpenDetails(driver)}
-                      >
-                        <Eye size={16} />
-                      </button>
+                    {/* Phone */}
+                    <td style={{ fontWeight: '500' }}>
+                      {driver.phone || <span style={{ color: 'var(--text-muted)' }}>N/A</span>}
+                    </td>
 
-                      {driver.status === 'verification_requests' && (
-                        <>
-                          <button
-                            className="action-btn"
-                            style={{ color: '#10B981', backgroundColor: '#D1FAE5', borderColor: '#A7F3D0' }}
-                            title="Approve Driver"
-                            onClick={() => handleApprove(driver.id)}
-                          >
-                            <Check size={16} />
-                          </button>
-                          <button
-                            className="action-btn"
-                            style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
-                            title="Reject & Request Re-upload"
-                            onClick={() => openRejectModal(driver)}
-                          >
-                            <X size={16} />
-                          </button>
-                        </>
+                    {/* Vehicle */}
+                    <td>
+                      <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>
+                        {driver.vehicle || driver.vehicleType || 'N/A'}
+                      </div>
+                      <div style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {driver.vehicleNumber || driver.vehicleNo || 'No Plate'}
+                      </div>
+                    </td>
+
+                    {/* KYC Status */}
+                    <td>
+                      {isKycAppr ? (
+                        <span className="badge badge-online" style={{ backgroundColor: '#D1FAE5', color: '#065F46', border: '1px solid #A7F3D0' }}>
+                          ✓ Approved
+                        </span>
+                      ) : isKycRej ? (
+                        <span className="badge badge-cancelled" style={{ backgroundColor: '#FEE2E2', color: '#991B1B', border: '1px solid #FCA5A5' }}>
+                          ✕ Rejected
+                        </span>
+                      ) : (
+                        <span className="badge badge-pending" style={{ backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}>
+                          ● Pending
+                        </span>
                       )}
+                    </td>
 
-                      <button
-                        className="action-btn"
-                        style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
-                        title="Delete Driver"
-                        onClick={() => deleteDriver(driver.id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    {/* Online */}
+                    <td>
+                      {isOnline ? (
+                        <span className="badge badge-online" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }}></span>
+                          Online
+                        </span>
+                      ) : (
+                        <span className="badge badge-offline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--text-muted)' }}>
+                          <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#94A3B8', display: 'inline-block' }}></span>
+                          Offline
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Actions */}
+                    <td style={{ textAlign: 'right' }}>
+                      <div className="action-row" style={{ justifyContent: 'flex-end', display: 'flex', gap: '6px' }}>
+                        <button
+                          className="action-btn btn-view"
+                          title="View Driver Details & Documents"
+                          onClick={() => handleOpenDetails(driver)}
+                        >
+                          <Eye size={15} />
+                        </button>
+
+                        {/* If KYC is pending or unverified, show quick Approve & Reject buttons */}
+                        {isKycPend && (
+                          <>
+                            <button
+                              className="action-btn"
+                              style={{ color: '#059669', backgroundColor: '#D1FAE5', borderColor: '#A7F3D0' }}
+                              title="Approve KYC"
+                              onClick={() => handleApprove(driver.id || driver.driverId)}
+                            >
+                              <Check size={15} />
+                            </button>
+                            <button
+                              className="action-btn"
+                              style={{ color: '#DC2626', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
+                              title="Reject KYC"
+                              onClick={() => openRejectModal(driver)}
+                            >
+                              <X size={15} />
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          className="action-btn"
+                          style={{ color: '#DC2626', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
+                          title="Delete Driver"
+                          onClick={() => handleDeleteDriver(driver.id || driver.driverId)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Driver Detail Drawer / Modal */}
+      {/* ─── DRIVER DETAIL MODAL (DRAWER) ─── */}
       {selectedDriver && (
         <div className="modal-backdrop" onClick={() => setSelectedDriver(null)}>
           <div className="modal-container" style={{ maxWidth: '720px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Driver Profile - {selectedDriver.name}</h3>
+              <h3 className="modal-title">Driver Profile - {selectedDriver.name || 'Driver'}</h3>
               <button className="modal-close-btn" onClick={() => setSelectedDriver(null)}><X size={20} /></button>
             </div>
 
@@ -333,41 +789,43 @@ export default function DriversModule() {
               <button className={`tab-btn ${detailTab === 'overview' ? 'active' : ''}`} style={{ fontSize: '13px', padding: '10px 14px' }} onClick={() => setDetailTab('overview')}>Overview</button>
               <button className={`tab-btn ${detailTab === 'trips' ? 'active' : ''}`} style={{ fontSize: '13px', padding: '10px 14px' }} onClick={() => setDetailTab('trips')}>Trips History</button>
               <button className={`tab-btn ${detailTab === 'docs' ? 'active' : ''}`} style={{ fontSize: '13px', padding: '10px 14px' }} onClick={() => setDetailTab('docs')}>Documents</button>
-              <button className={`tab-btn ${detailTab === 'earnings' ? 'active' : ''}`} style={{ fontSize: '13px', padding: '10px 14px' }} onClick={() => setDetailTab('earnings')}>Earnings</button>
             </div>
 
             <div className="modal-body" style={{ minHeight: '300px' }}>
+              {/* TAB 1: OVERVIEW */}
               {detailTab === 'overview' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                   <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                    <div style={{ width: '70px', height: '70px', borderRadius: '50%', backgroundColor: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '3px solid white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                    <div style={{ width: '70px', height: '70px', borderRadius: '50%', backgroundColor: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '3px solid white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', overflow: 'hidden', flexShrink: 0 }}>
                       {selectedDriver.profilePhotoUri ? (
-                        <img
-                          src={selectedDriver.profilePhotoUri}
-                          alt={selectedDriver.name}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                        />
-                      ) : null}
-                      <div style={{ display: selectedDriver.profilePhotoUri ? 'none' : 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                        <Award size={36} color="var(--primary)" />
-                      </div>
+                        <img src={selectedDriver.profilePhotoUri} alt={selectedDriver.name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                      ) : (
+                        <span style={{ fontSize: '28px', fontWeight: '700', color: 'var(--primary)' }}>{(selectedDriver.name || 'D')[0].toUpperCase()}</span>
+                      )}
                     </div>
                     <div>
-                      <h4 style={{ fontSize: '18px' }}>{selectedDriver.name}</h4>
-                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>{selectedDriver.phone}</p>
-                      <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                        <span className={`badge ${getStatusClass(selectedDriver.status)}`}>{getStatusText(selectedDriver.status)}</span>
-                        {selectedDriver.docs?.verified && <span className="badge badge-online">Verified Partner</span>}
+                      <h3 style={{ margin: 0, fontSize: '18px' }}>{selectedDriver.name || 'Driver'}</h3>
+                      <div style={{ display: 'flex', gap: '12px', marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Phone size={12} /> {selectedDriver.phone}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Truck size={12} /> {selectedDriver.vehicleType || selectedDriver.vehicle} ({selectedDriver.vehicleNumber || selectedDriver.vehicleNo || 'N/A'})</span>
+                      </div>
+                      <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
+                        <span className="badge" style={{ backgroundColor: '#EEF2FF', color: '#4F46E5', fontWeight: '700' }}>
+                          {selectedDriver.serviceCategory || (selectedDriver.serviceType === 'PASSENGER' ? 'Passenger Rides' : 'Our Services')}
+                        </span>
+                        <span className={`badge ${selectedDriver.status === 'online' ? 'badge-online' : 'badge-offline'}`}>
+                          {selectedDriver.status === 'online' ? 'Online' : 'Offline'}
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                  {/* Summary Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                     <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Rating</div>
                       <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                        <Star size={15} fill="#F59E0B" color="#F59E0B" /> {selectedDriver.rating > 0 ? parseFloat(selectedDriver.rating).toFixed(1) : 'N/A'}
+                        <Star size={15} fill="#F59E0B" color="#F59E0B" /> {selectedDriver.rating ? parseFloat(selectedDriver.rating).toFixed(1) : '4.8'}
                       </div>
                     </div>
                     <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
@@ -375,108 +833,58 @@ export default function DriversModule() {
                       <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px' }}>{selectedDriver.trips || 0}</div>
                     </div>
                     <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Wallet Balance</div>
-                      <div style={{ fontSize: '16px', fontWeight: '800', marginTop: '4px', color: (selectedDriver.walletBalance || selectedDriver.wallet || 0) > 0 ? '#059669' : '#DC2626' }}>
-                        ₹{(selectedDriver.walletBalance || selectedDriver.wallet || 0).toLocaleString()}
-                      </div>
-                    </div>
-                    <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Trip Earnings</div>
-                      <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '4px', color: '#2563EB' }}>
-                        ₹{(selectedDriver.earnings || 0).toLocaleString()}
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>KYC Status</div>
+                      <div style={{ fontSize: '14px', fontWeight: '700', marginTop: '4px', textTransform: 'capitalize', color: selectedDriver.kyc === 'approved' || selectedDriver.kycStatus === 'approved' ? '#059669' : '#D97706' }}>
+                        {selectedDriver.kyc || selectedDriver.kycStatus || 'Pending'}
                       </div>
                     </div>
                   </div>
 
+                  {/* Vehicle Details */}
                   <div>
                     <h4 style={{ fontSize: '14px', marginBottom: '8px' }}>Vehicle Specifications</h4>
                     <table className="custom-table" style={{ border: '1px solid var(--border-color)' }}>
                       <tbody>
                         <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '30%' }}>Vehicle Type</td>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '30%' }}>Service Category</td>
+                          <td>{selectedDriver.serviceCategory || (selectedDriver.serviceType === 'PASSENGER' ? 'Passenger Rides' : 'Our Services')}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Vehicle Type</td>
                           <td>{selectedDriver.vehicleType || selectedDriver.vehicle || 'N/A'}</td>
                         </tr>
                         <tr>
                           <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>License Plate</td>
-                          <td>{selectedDriver.vehicleNo || 'N/A'}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Onboarding Date</td>
-                          <td>{selectedDriver.createdAt ? new Date(selectedDriver.createdAt).toLocaleDateString() : '2026-02-14'}</td>
+                          <td>{selectedDriver.vehicleNumber || selectedDriver.vehicleNo || 'N/A'}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
 
-                  {/* Address Details */}
+                  {/* Identity & Bank Details */}
                   <div>
-                    <h4 style={{ fontSize: '14px', marginBottom: '8px', marginTop: '16px' }}>Address Details</h4>
+                    <h4 style={{ fontSize: '14px', marginBottom: '8px', marginTop: '10px' }}>Identity & Bank Details</h4>
                     <table className="custom-table" style={{ border: '1px solid var(--border-color)' }}>
                       <tbody>
                         <tr>
                           <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '30%' }}>Email</td>
-                          <td>{selectedDriver.email || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                          <td>{selectedDriver.email || 'Not provided'}</td>
                         </tr>
                         <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Full Address</td>
-                          <td style={{ whiteSpace: 'normal' }}>{selectedDriver.addressLine1 || selectedDriver.address || selectedDriver.homeAddress || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>City</td>
-                          <td>{selectedDriver.city || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>State</td>
-                          <td>{selectedDriver.state || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Pincode</td>
-                          <td>{selectedDriver.pincode || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Additional KYC Info */}
-                  <div>
-                    <h4 style={{ fontSize: '14px', marginBottom: '8px', marginTop: '16px' }}>Identity & Bank Details</h4>
-                    <table className="custom-table" style={{ border: '1px solid var(--border-color)' }}>
-                      <tbody>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)', width: '30%' }}>Date of Birth</td>
-                          <td>{selectedDriver.dob || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Gender</td>
-                          <td>{selectedDriver.gender || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Aadhaar Number</td>
-                          <td>{selectedDriver.aadhaarNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>License Number</td>
-                          <td>{selectedDriver.licenseNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Driving License</td>
+                          <td>{selectedDriver.licenseNumber || 'Not provided'}</td>
                         </tr>
                         <tr>
                           <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>RC Number</td>
-                          <td>{selectedDriver.rcNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                          <td>{selectedDriver.rcNumber || 'Not provided'}</td>
                         </tr>
                         <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Bank Name</td>
-                          <td>{selectedDriver.bankName || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Aadhaar Number</td>
+                          <td>{selectedDriver.aadhaarNumber || 'Not provided'}</td>
                         </tr>
                         <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Account Holder</td>
-                          <td>{selectedDriver.accountHolderName || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Account Number</td>
-                          <td>{selectedDriver.accountNumber || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>IFSC Code</td>
-                          <td>{selectedDriver.ifscCode || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided</span>}</td>
+                          <td style={{ fontWeight: '600', backgroundColor: 'var(--bg-main)' }}>Bank Name / Account</td>
+                          <td>{selectedDriver.bankName ? `${selectedDriver.bankName} (${selectedDriver.accountNumber || 'N/A'})` : 'Not provided'}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -484,6 +892,7 @@ export default function DriversModule() {
                 </div>
               )}
 
+              {/* TAB 2: TRIPS */}
               {detailTab === 'trips' && (
                 <div>
                   <h4 style={{ fontSize: '14px', marginBottom: '12px' }}>Recent Order Logs</h4>
@@ -508,10 +917,10 @@ export default function DriversModule() {
                             <tr key={trip.id}>
                               <td style={{ fontWeight: '700' }}>#{trip.id}</td>
                               <td>{trip.customer}</td>
-                              <td>{trip.pickup.split(',')[0]} → {trip.drop.split(',')[0]}</td>
+                              <td>{trip.pickup ? trip.pickup.split(',')[0] : 'Origin'} → {trip.drop ? trip.drop.split(',')[0] : 'Destination'}</td>
                               <td>₹{trip.amount}</td>
                               <td>
-                                <span className={`badge ${getStatusClass(trip.status)}`}>{trip.status}</span>
+                                <span className="badge badge-online">{trip.status}</span>
                               </td>
                             </tr>
                           ))}
@@ -522,240 +931,86 @@ export default function DriversModule() {
                 </div>
               )}
 
+              {/* TAB 3: DOCUMENTS */}
               {detailTab === 'docs' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <h4 style={{ fontSize: '14px' }}>Uploaded Verification Scans</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                    {/* Driver License Card */}
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 16px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600' }}>Driver License (DL)</span>
-                        <span className="badge" style={{
-                          backgroundColor: selectedDriver.docs?.license === 'Verified' ? '#D1FAE5' : selectedDriver.docs?.license === 'Rejected' ? '#FEE2E2' : '#FEF3C7',
-                          color: selectedDriver.docs?.license === 'Verified' ? '#10B981' : selectedDriver.docs?.license === 'Rejected' ? '#EF4444' : '#F59E0B'
-                        }}>{selectedDriver.docs?.license || 'Pending'}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h4 style={{ fontSize: '14px', margin: 0 }}>KYC Document Scans & Verification</h4>
+                    <span className="badge" style={{
+                      backgroundColor: selectedDriver.docs?.verified || selectedDriver.kyc === 'approved' ? '#D1FAE5' : '#FEF3C7',
+                      color: selectedDriver.docs?.verified || selectedDriver.kyc === 'approved' ? '#10B981' : '#F59E0B',
+                      fontWeight: '700'
+                    }}>
+                      {selectedDriver.docs?.verified || selectedDriver.kyc === 'approved' ? '● Verified Partner' : '● Verification Pending'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                    {/* License */}
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--surface)' }}>
+                      <div style={{ padding: '10px 14px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700' }}>Driving License (DL)</span>
+                        <span className="badge" style={{ fontSize: '10px' }}>{selectedDriver.docs?.license || 'Pending'}</span>
                       </div>
-                      <div style={{ height: '160px', backgroundColor: '#E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                        {selectedDriver.docs?.licenseUrl ? (
-                          <>
-                            <img 
-                              src={selectedDriver.docs.licenseUrl} 
-                              alt="License Scan" 
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                            <div style={{ display: 'none', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px', textAlign: 'center' }}>
-                              <ShieldAlert size={28} color="#F59E0B" />
-                              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Scan Uploaded (S3 Protected)</span>
-                              <a href={selectedDriver.docs.licenseUrl} target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--primary)', textDecoration: 'underline' }}>Open Image Link</a>
-                            </div>
-                          </>
+                      <div style={{ height: '160px', backgroundColor: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {(selectedDriver.licenseUri || selectedDriver.docs?.licenseUrl) ? (
+                          <img src={selectedDriver.licenseUri || selectedDriver.docs?.licenseUrl} alt="License Scan" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
                         ) : (
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No document scan uploaded</span>
+                          <FileText size={28} color="#94A3B8" />
                         )}
                       </div>
                     </div>
 
-                    {/* Registration Certificate Card */}
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 16px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600' }}>Registration Certificate (RC)</span>
-                        <span className="badge" style={{
-                          backgroundColor: selectedDriver.docs?.rc === 'Verified' ? '#D1FAE5' : selectedDriver.docs?.rc === 'Rejected' ? '#FEE2E2' : '#FEF3C7',
-                          color: selectedDriver.docs?.rc === 'Verified' ? '#10B981' : selectedDriver.docs?.rc === 'Rejected' ? '#EF4444' : '#F59E0B'
-                        }}>{selectedDriver.docs?.rc || 'Pending'}</span>
+                    {/* RC */}
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--surface)' }}>
+                      <div style={{ padding: '10px 14px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700' }}>Vehicle RC</span>
+                        <span className="badge" style={{ fontSize: '10px' }}>{selectedDriver.docs?.rc || 'Pending'}</span>
                       </div>
-                      <div style={{ height: '160px', backgroundColor: '#E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                        {selectedDriver.docs?.rcUrl ? (
-                          <>
-                            <img 
-                              src={selectedDriver.docs.rcUrl} 
-                              alt="RC Scan" 
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                            <div style={{ display: 'none', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px', textAlign: 'center' }}>
-                              <ShieldAlert size={28} color="#F59E0B" />
-                              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Scan Uploaded (S3 Protected)</span>
-                              <a href={selectedDriver.docs.rcUrl} target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--primary)', textDecoration: 'underline' }}>Open Image Link</a>
-                            </div>
-                          </>
+                      <div style={{ height: '160px', backgroundColor: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {(selectedDriver.rcUri || selectedDriver.docs?.rcUrl) ? (
+                          <img src={selectedDriver.rcUri || selectedDriver.docs?.rcUrl} alt="RC Scan" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
                         ) : (
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No document scan uploaded</span>
+                          <Truck size={28} color="#94A3B8" />
                         )}
                       </div>
                     </div>
 
-                    {/* Commercial Road Permit Card */}
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 16px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600' }}>Commercial Road Permit</span>
-                        <span className="badge" style={{
-                          backgroundColor: selectedDriver.docs?.rc === 'Verified' ? '#D1FAE5' : selectedDriver.docs?.rc === 'Rejected' ? '#FEE2E2' : '#FEF3C7',
-                          color: selectedDriver.docs?.rc === 'Verified' ? '#10B981' : selectedDriver.docs?.rc === 'Rejected' ? '#EF4444' : '#F59E0B'
-                        }}>{selectedDriver.docs?.rc || 'Pending'}</span>
+                    {/* Profile Photo */}
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden', backgroundColor: 'var(--surface)' }}>
+                      <div style={{ padding: '10px 14px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700' }}>Profile Photo</span>
+                        <span className="badge badge-online" style={{ fontSize: '10px' }}>Active</span>
                       </div>
-                      <div style={{ height: '160px', backgroundColor: '#E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        {selectedDriver.docs?.rcUrl ? (
-                          <img src={selectedDriver.docs.rcUrl} alt="Permit Scan" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; }} />
-                        ) : null}
-                        <div style={{ display: selectedDriver.docs?.rcUrl ? 'none' : 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                          <Truck size={28} color="var(--primary)" />
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Commercial Permit Verified</span>
-                        </div>
+                      <div style={{ height: '160px', backgroundColor: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {selectedDriver.profilePhotoUri ? (
+                          <img src={selectedDriver.profilePhotoUri} alt="Face Photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                        ) : (
+                          <User size={28} color="#94A3B8" />
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {selectedDriver.status === 'verification_requests' && (
-                    <div style={{ padding: '16px', border: '1px solid #C084FC', backgroundColor: '#EDE9FE', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  {/* Decision Buttons */}
+                  {selectedDriver.kyc !== 'approved' && selectedDriver.kycStatus !== 'approved' && !selectedDriver.docs?.verified && (
+                    <div style={{ padding: '16px', border: '1px solid #C084FC', backgroundColor: '#EDE9FE', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                         <ShieldAlert size={20} color="#8B5CF6" />
-                        <span style={{ fontSize: '13px', color: '#6B21A8', fontWeight: '500' }}>This driver is awaiting document verification.</span>
+                        <span style={{ fontSize: '13px', color: '#6B21A8', fontWeight: '600' }}>Admin Verification Decision:</span>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => handleApprove(selectedDriver.id)}>Approve</button>
-                        <button className="btn btn-danger" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => openRejectModal(selectedDriver)}>Reject & Request Re-upload</button>
+                        <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px', backgroundColor: '#10B981', borderColor: '#059669' }} onClick={() => handleApprove(selectedDriver.id || selectedDriver.driverId)}>
+                          <Check size={14} /> Approve KYC Verification
+                        </button>
+                        <button className="btn btn-danger" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => openRejectModal(selectedDriver)}>
+                          <X size={14} /> Reject & Request Re-upload
+                        </button>
                       </div>
                     </div>
                   )}
                 </div>
               )}
-
-              {detailTab === 'earnings' && (() => {
-                const recentTxns = driverWalletLedger?.recentTransactions || [];
-                const totalRecharges = recentTxns.filter(t => t.type === 'RECHARGE').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-                const totalTripEarnings = recentTxns.filter(t => t.type === 'ORDER_EARNING').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-                const totalCommissionDeductions = recentTxns.filter(t => t.type === 'COMMISSION_DEDUCTION').reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
-                const currentBal = selectedDriver.walletBalance != null ? Number(selectedDriver.walletBalance) : (Number(selectedDriver.wallet) || 0);
-
-                return (
-                  <div className="tab-pane">
-                    <div className="dashboard-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--surface)', padding: '16px 20px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div className="stat-icon" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', width: '48px', height: '48px' }}>
-                          <Wallet size={24} />
-                        </div>
-                        <div>
-                          <h4 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '700' }}>Driver Wallet & Earnings Account</h4>
-                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                            Current Available Balance: <strong style={{ color: currentBal > 0 ? '#059669' : '#DC2626', fontSize: '14px' }}>₹{currentBal.toLocaleString()}</strong>
-                            {currentBal > 0 ? (
-                              <span className="badge" style={{ backgroundColor: '#DCFCE7', color: '#15803D', marginLeft: '8px', fontSize: '10px', fontWeight: '700' }}>● Eligible for Orders</span>
-                            ) : (
-                              <span className="badge" style={{ backgroundColor: '#FEE2E2', color: '#DC2626', marginLeft: '8px', fontSize: '10px', fontWeight: '700' }}>● Recharge Needed (Hidden from Assign)</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
-                        onClick={() => {
-                          setRechargeModalDriver(selectedDriver);
-                          setRechargeAmount('500');
-                          setRechargeRef(`PAY_REF_${Date.now()}`);
-                        }}
-                      >
-                        <Wallet size={15} /> + Recharge Driver Wallet
-                      </button>
-                    </div>
-
-                    {/* Breakdown Summary Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
-                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Current Balance</div>
-                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: currentBal > 0 ? '#059669' : '#DC2626' }}>₹{currentBal.toLocaleString()}</div>
-                      </div>
-                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Admin Recharges</div>
-                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: '#2563EB' }}>+₹{totalRecharges.toLocaleString()}</div>
-                      </div>
-                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Trip Earnings Credited</div>
-                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: '#059669' }}>+₹{totalTripEarnings.toLocaleString()}</div>
-                      </div>
-                      <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>5% Platform Fees</div>
-                        <div style={{ fontSize: '17px', fontWeight: '800', marginTop: '4px', color: '#DC2626' }}>-₹{totalCommissionDeductions.toLocaleString()}</div>
-                      </div>
-                    </div>
-
-                    {/* Breakdown Formula Notice */}
-                    <div style={{ padding: '10px 14px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: '16px', fontSize: '11px', color: '#1E40AF', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>💡</span>
-                      <span><strong>Wallet Breakdown:</strong> Balance (₹{currentBal.toLocaleString()}) = Admin Recharges (+₹{totalRecharges.toLocaleString()}) + Trip Earnings (+₹{totalTripEarnings.toLocaleString()}) - 5% Platform Fees (-₹{totalCommissionDeductions.toLocaleString()}).</span>
-                    </div>
-
-                    {/* Real Transaction Ledger from GET /api/drivers/{id}/wallet */}
-                    <h4 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <ListFilter size={16} color="var(--primary)" /> Wallet Transaction History & Commission Ledger
-                    </h4>
-
-                    {loadingLedger ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading live wallet ledger...</div>
-                    ) : recentTxns.length > 0 ? (
-                      <table className="custom-table" style={{ border: '1px solid var(--border-color)', fontSize: '12px' }}>
-                        <thead>
-                          <tr>
-                            <th>Txn ID</th>
-                            <th>Transaction Type</th>
-                            <th>Amount</th>
-                            <th>Order Ref</th>
-                            <th>Balance After</th>
-                            <th>Date & Time</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recentTxns.map(tx => {
-                            const isRecharge = tx.type === 'RECHARGE';
-                            const isEarning = tx.type === 'ORDER_EARNING';
-                            const isCommission = tx.type === 'COMMISSION_DEDUCTION';
-
-                            const badgeBg = isRecharge ? '#EFF6FF' : isEarning ? '#DCFCE7' : isCommission ? '#FEF2F2' : '#F1F5F9';
-                            const badgeColor = isRecharge ? '#2563EB' : isEarning ? '#15803D' : isCommission ? '#DC2626' : 'var(--text-main)';
-                            const label = isRecharge ? '💰 Admin Recharge' : isEarning ? '🚚 Trip Fare Credited' : isCommission ? '⚡ 5% Platform Fee' : tx.type;
-
-                            return (
-                              <tr key={tx.id}>
-                                <td><code>{tx.id}</code></td>
-                                <td>
-                                  <span className="badge" style={{
-                                    backgroundColor: badgeBg,
-                                    color: badgeColor,
-                                    fontSize: '11px',
-                                    fontWeight: '700'
-                                  }}>
-                                    {label}
-                                  </span>
-                                </td>
-                                <td style={{ fontWeight: '700', color: tx.amount > 0 ? '#059669' : '#DC2626' }}>
-                                  {tx.amount > 0 ? `+₹${tx.amount.toLocaleString()}` : `-₹${Math.abs(tx.amount).toLocaleString()}`}
-                                </td>
-                                <td>{tx.orderId ? <code>#{tx.orderId}</code> : '—'}</td>
-                                <td style={{ fontWeight: '700' }}>₹{tx.balanceAfter != null ? tx.balanceAfter.toLocaleString() : '—'}</td>
-                                <td style={{ color: 'var(--text-muted)' }}>{tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '—'}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div style={{ padding: '20px', textAlign: 'center', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        No wallet transactions recorded yet for this driver. Click <strong>+ Recharge Driver Wallet</strong> to add funds.
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
             </div>
 
             <div className="modal-footer">
@@ -765,157 +1020,22 @@ export default function DriversModule() {
         </div>
       )}
 
-      {/* Recharge Driver Wallet Modal */}
-      {rechargeModalDriver && (
-        <div className="modal-backdrop" onClick={() => !rechargeProcessing && setRechargeModalDriver(null)}>
-          <div className="modal-container" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Wallet size={18} />
-                </div>
-                <h3 className="modal-title" style={{ margin: 0 }}>Recharge Driver Wallet</h3>
-              </div>
-              <button type="button" className="modal-close-btn" onClick={() => !rechargeProcessing && setRechargeModalDriver(null)}><X size={20} /></button>
-            </div>
-
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const amt = parseFloat(rechargeAmount);
-                if (isNaN(amt) || amt <= 0) {
-                  alert('Please enter a valid recharge amount (> ₹0).');
-                  return;
-                }
-                setRechargeProcessing(true);
-                const res = await rechargeDriverWallet(rechargeModalDriver.id || rechargeModalDriver.driverId, amt, rechargeNotes, rechargeRef);
-                setRechargeProcessing(false);
-                if (res?.success) {
-                  const txnMsg = res.transactionId ? `\nTransaction ID: ${res.transactionId}` : '';
-                  const balMsg = res.newBalance != null ? `\nNew Wallet Balance: ₹${res.newBalance.toLocaleString()}` : '';
-                  alert(`✅ Wallet recharged successfully with ₹${amt.toLocaleString()} for ${rechargeModalDriver.name}!${balMsg}${txnMsg}`);
-                  setRechargeModalDriver(null);
-                  if (selectedDriver && getDriverWalletHistory) {
-                    getDriverWalletHistory(selectedDriver.id || selectedDriver.driverId).then(d => d && setDriverWalletLedger(d));
-                  }
-                } else {
-                  alert(`Recharge failed: ${res?.message || res?.error || 'Server error'}`);
-                }
-              }}
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
-            >
-              <div style={{ padding: '12px 14px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: '700', fontSize: '14px' }}>{rechargeModalDriver.name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>ID: {rechargeModalDriver.driverId || rechargeModalDriver.id} • {rechargeModalDriver.phone}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Current Wallet</div>
-                  <div style={{ fontSize: '15px', fontWeight: '800', color: (rechargeModalDriver.wallet || 0) > 0 ? '#059669' : '#DC2626' }}>
-                    ₹{(rechargeModalDriver.wallet || 0).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>Select Quick Amount (₹)</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '10px' }}>
-                  {['100', '500', '1000', '2000'].map(val => (
-                    <button
-                      key={val}
-                      type="button"
-                      className="btn"
-                      style={{
-                        backgroundColor: rechargeAmount === val ? 'var(--primary)' : 'var(--bg-main)',
-                        color: rechargeAmount === val ? '#FFF' : 'var(--text-main)',
-                        border: '1px solid var(--border-color)',
-                        fontWeight: '700',
-                        fontSize: '13px',
-                        padding: '8px 0'
-                      }}
-                      onClick={() => setRechargeAmount(val)}
-                    >
-                      ₹{val}
-                    </button>
-                  ))}
-                </div>
-
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>Custom Recharge Amount (₹) *</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                  value={rechargeAmount}
-                  onChange={(e) => setRechargeAmount(e.target.value)}
-                  placeholder="Enter recharge amount..."
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>Recharge Reference / Note</label>
-                <input
-                  type="text"
-                  value={rechargeNotes}
-                  onChange={(e) => setRechargeNotes(e.target.value)}
-                  placeholder="e.g. UPI / Cash Payment Received"
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px' }}
-                />
-              </div>
-
-              <div style={{ padding: '10px 12px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', fontSize: '11px', color: '#2563EB' }}>
-                ⚡ Recharging driver wallet enables them to appear on the <strong>Order Assignment List</strong>. 5% platform commission cut applies automatically per trip.
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setRechargeModalDriver(null)}
-                  disabled={rechargeProcessing}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={rechargeProcessing}
-                >
-                  {rechargeProcessing ? 'Processing...' : 'Confirm Wallet Recharge'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ─── REJECT & REQUEST RE-UPLOAD MODAL ─── */}
+      {/* ─── REJECT MODAL ─── */}
       {rejectModalDriver && (
         <div className="modal-backdrop" onClick={() => setRejectModalDriver(null)}>
           <div className="modal-container" style={{ maxWidth: '540px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <div>
-                <h3 className="modal-title" style={{ color: '#DC2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <ShieldAlert size={20} color="#DC2626" /> Reject Documents & Request Re-upload
-                </h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Driver: <strong>{rejectModalDriver.name}</strong> ({rejectModalDriver.phone})
-                </p>
-              </div>
-              <button className="modal-close-btn" onClick={() => setRejectModalDriver(null)}>
-                <X size={20} />
-              </button>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ color: '#DC2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={20} color="#DC2626" /> Reject Documents & Request Re-upload
+              </h3>
+              <button className="modal-close-btn" onClick={() => setRejectModalDriver(null)}><X size={20} /></button>
             </div>
 
             <form onSubmit={handleConfirmRejection} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Notice Banner */}
               <div style={{ padding: '12px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', fontSize: '12px', color: '#991B1B', lineHeight: '1.5' }}>
-                ℹ️ The driver will receive an in-app alert prompt on their <strong>Driver Mobile App</strong> with this rejection reason and will be required to re-upload clear document scans before verification can be approved.
+                The driver partner will be required to re-upload clear document scans before verification can be approved.
               </div>
 
-              {/* Document Selection Checkboxes */}
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>
                   Select Documents to Mark for Re-upload <span style={{ color: '#DC2626' }}>*</span>
@@ -935,7 +1055,7 @@ export default function DriversModule() {
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
-                          padding: '10px 12px',
+                          padding: '8px 12px',
                           borderRadius: '6px',
                           border: isChecked ? '1px solid #F87171' : '1px solid var(--border-color)',
                           backgroundColor: isChecked ? '#FFF1F2' : 'var(--bg-main)',
@@ -955,7 +1075,6 @@ export default function DriversModule() {
                               setRejectedDocKeys(prev => [...prev, doc.key]);
                             }
                           }}
-                          style={{ accentColor: '#DC2626' }}
                         />
                         {doc.label}
                       </label>
@@ -964,7 +1083,6 @@ export default function DriversModule() {
                 </div>
               </div>
 
-              {/* Pre-defined Rejection Reason Quick Chips */}
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>
                   Primary Rejection Reason
@@ -972,48 +1090,171 @@ export default function DriversModule() {
                 <select
                   value={selectedReasonTemplate}
                   onChange={(e) => setSelectedReasonTemplate(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px', backgroundColor: 'var(--surface)' }}
+                  className="custom-input"
                 >
                   <option value="Blurry or unreadable document photo">📷 Blurry or unreadable document photo</option>
                   <option value="Document has expired / validity ended">📅 Document has expired / validity ended</option>
                   <option value="Name / details mismatch between License and RC">⚠️ Name / details mismatch between License and RC</option>
                   <option value="Document image cropped / edges not visible">✂️ Document image cropped / edges not visible</option>
-                  <option value="Invalid / unverified document copy">❌ Invalid / unverified document copy</option>
-                  <option value="Custom Reason">✏️ Custom Specific Reason (Write below)</option>
+                  <option value="Custom Reason">✏️ Custom Specific Reason</option>
                 </select>
               </div>
 
-              {/* Custom Note for Driver */}
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>
-                  Operator Instructions to Driver (Optional)
+                  Operator Instructions to Driver
                 </label>
                 <textarea
                   rows="3"
                   value={customRejectionNote}
                   onChange={(e) => setCustomRejectionNote(e.target.value)}
-                  placeholder="e.g. Please capture the original physical driving license in good lighting with all 4 corners and license number clearly visible..."
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '12px', resize: 'vertical' }}
+                  placeholder="e.g. Please capture clear physical copies with all 4 corners visible..."
+                  className="custom-input"
                 />
               </div>
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setRejectModalDriver(null)}
-                  disabled={isRejecting}
-                >
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setRejectModalDriver(null)} disabled={isRejecting}>
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="btn btn-danger"
-                  style={{ backgroundColor: '#DC2626', borderColor: '#DC2626', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  disabled={isRejecting || rejectedDocKeys.length === 0}
-                >
-                  {isRejecting ? 'Rejecting...' : 'Confirm Rejection & Request Re-upload'}
+                <button type="submit" className="btn btn-danger" disabled={isRejecting || rejectedDocKeys.length === 0}>
+                  {isRejecting ? 'Rejecting...' : 'Confirm Rejection'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── ADD DRIVER MODAL ─── */}
+      {showAddDriverModal && (
+        <div className="modal-backdrop" onClick={() => setShowAddDriverModal(false)}>
+          <div className="modal-container" style={{ maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Plus size={20} color="var(--primary)" /> Add Driver ({serviceTab === 'passengers' ? 'Passenger Fleet' : 'Our Services Fleet'})
+              </h3>
+              <button className="modal-close-btn" onClick={() => setShowAddDriverModal(false)}><X size={20} /></button>
+            </div>
+
+            <form onSubmit={handleCreateDriverSubmit} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="form-label">Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Ramesh Kumar"
+                    value={addDriverForm.name}
+                    onChange={(e) => setAddDriverForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="custom-input"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Mobile Phone *</label>
+                  <input
+                    type="tel"
+                    required
+                    maxLength="10"
+                    placeholder="e.g. 9876543210"
+                    value={addDriverForm.phone}
+                    onChange={(e) => setAddDriverForm(prev => ({ ...prev, phone: e.target.value.replace(/\D/g, '') }))}
+                    className="custom-input"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Email Address</label>
+                  <input
+                    type="email"
+                    placeholder="e.g. ramesh@porter.in"
+                    value={addDriverForm.email}
+                    onChange={(e) => setAddDriverForm(prev => ({ ...prev, email: e.target.value }))}
+                    className="custom-input"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Vehicle Type *</label>
+                  <select
+                    value={addDriverForm.vehicleType}
+                    onChange={(e) => setAddDriverForm(prev => ({ ...prev, vehicleType: e.target.value }))}
+                    className="custom-input"
+                  >
+                    {serviceTab === 'passengers' ? (
+                      <>
+                        <option value="Cab (Sedan)">Cab (Sedan)</option>
+                        <option value="Cab (Hatchback)">Cab (Hatchback)</option>
+                        <option value="Cab (SUV)">Cab (SUV)</option>
+                        <option value="Auto Taxi">Auto Taxi</option>
+                        <option value="Bike Taxi">Bike Taxi</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Tata Ace (750kg)">Tata Ace (750kg)</option>
+                        <option value="2 Wheeler (Goods)">2 Wheeler (Goods)</option>
+                        <option value="3 Wheeler (500kg)">3 Wheeler (500kg)</option>
+                        <option value="Pickup 8ft (1200kg)">Pickup 8ft (1200kg)</option>
+                        <option value="Tata 407 (2500kg)">Tata 407 (2500kg)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">License Plate Number *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. TS 09 AB 1234"
+                    value={addDriverForm.vehicleNumber}
+                    onChange={(e) => setAddDriverForm(prev => ({ ...prev, vehicleNumber: e.target.value.toUpperCase() }))}
+                    className="custom-input"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Driving License Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. DL-1420110012345"
+                    value={addDriverForm.licenseNumber}
+                    onChange={(e) => setAddDriverForm(prev => ({ ...prev, licenseNumber: e.target.value.toUpperCase() }))}
+                    className="custom-input"
+                  />
+                </div>
+              </div>
+
+              {/* Uploads */}
+              <div>
+                <h4 style={{ fontSize: '13px', marginBottom: '8px' }}>Documents & Photo (Optional)</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  <div style={{ border: '1px dashed var(--border-color)', padding: '10px', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '700', marginBottom: '4px' }}>License (DL)</div>
+                    <label className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Upload size={12} /> {uploadProgress['licenseUri'] === 'done' ? '✓ Uploaded' : 'Upload'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleDocFileUpload(e, 'licenseUri', 'DRIVING_LICENCE')} />
+                    </label>
+                  </div>
+                  <div style={{ border: '1px dashed var(--border-color)', padding: '10px', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '700', marginBottom: '4px' }}>Vehicle RC</div>
+                    <label className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Upload size={12} /> {uploadProgress['rcUri'] === 'done' ? '✓ Uploaded' : 'Upload'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleDocFileUpload(e, 'rcUri', 'RC')} />
+                    </label>
+                  </div>
+                  <div style={{ border: '1px dashed var(--border-color)', padding: '10px', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '700', marginBottom: '4px' }}>Profile Photo</div>
+                    <label className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Upload size={12} /> {uploadProgress['profilePhotoUri'] === 'done' ? '✓ Uploaded' : 'Upload'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleDocFileUpload(e, 'profilePhotoUri', 'FACE')} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAddDriverModal(false)} disabled={isSubmittingDriver}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={isSubmittingDriver}>
+                  {isSubmittingDriver ? 'Saving Driver...' : 'Create Driver Partner'}
                 </button>
               </div>
             </form>

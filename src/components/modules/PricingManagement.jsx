@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { IndianRupee, ChevronRight } from 'lucide-react';
+import { IndianRupee, ChevronRight, Car, Clock, Truck } from 'lucide-react';
 import VehicleSelector from './pricing/VehicleSelector';
 import PricingConfigForm from './pricing/PricingConfigForm';
+import PassengerPricingSection from './pricing/PassengerPricingSection';
+import SurgeTimingSection from './pricing/SurgeTimingSection';
 import ToastProvider, { useToast } from './pricing/ToastNotification';
 
 const PricingManagementContent = () => {
   const { addToast } = useToast();
+  const [moduleTab, setModuleTab] = useState('passenger'); // 'passenger' | 'surge' | 'goods'
   const [vehicles, setVehicles] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -215,45 +218,84 @@ const PricingManagementContent = () => {
   return (
     <div className="module-container animate-fade">
       {/* Page Header with Breadcrumbs */}
-      <div className="module-header" style={{ marginBottom: '24px' }}>
+      <div className="module-header" style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <div className="breadcrumb-trail">
-            <span>Settings</span>
+            <span>Fare Management</span>
             <ChevronRight size={12} className="breadcrumb-separator" />
-            <span>Pricing Management</span>
-            <ChevronRight size={12} className="breadcrumb-separator" />
-            <span className="active-crumb">Vehicle Pricing</span>
+            <span className="active-crumb">
+              {moduleTab === 'passenger' ? 'Passenger Cab Pricing' : moduleTab === 'surge' ? 'Surge & Timing Windows' : 'Goods & Slabs Pricing'}
+            </span>
           </div>
           <h2 className="module-title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <IndianRupee size={28} color="var(--primary)" />
-            Vehicle Pricing Management
+            Fare, Timings & Dynamic Pricing
           </h2>
         </div>
       </div>
 
-      {/* Main Split Panel Layout */}
-      <div className="pricing-layout">
-        {/* Left Side: Vehicle List */}
-        <VehicleSelector
-          vehicles={vehicles}
-          selectedId={selectedVehicle?.id || selectedVehicle?.vehicleId}
-          onSelect={handleSelectVehicle}
-          onAddVehicle={handleAddNewVehicle}
-          loading={loading}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-        />
+      {/* Top Module Tabs */}
+      <div className="tab-group" style={{ marginBottom: '20px' }}>
+        <button
+          type="button"
+          className={`tab-btn ${moduleTab === 'passenger' ? 'active' : ''}`}
+          onClick={() => setModuleTab('passenger')}
+        >
+          <Car size={15} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Passenger Cab Pricing
+        </button>
 
-        {/* Right Side: Pricing Form & Preview */}
-        <PricingConfigForm
-          vehicle={selectedVehicle}
-          onSave={handleSavePricing}
-          onDelete={handleDeletePricing}
-          isSaving={isSaving}
-          isDirty={isDirty}
-          setIsDirty={setIsDirty}
-        />
+        <button
+          type="button"
+          className={`tab-btn ${moduleTab === 'surge' ? 'active' : ''}`}
+          onClick={() => setModuleTab('surge')}
+        >
+          <Clock size={15} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Surge & Timing Windows
+        </button>
+
+        <button
+          type="button"
+          className={`tab-btn ${moduleTab === 'goods' ? 'active' : ''}`}
+          onClick={() => setModuleTab('goods')}
+        >
+          <Truck size={15} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Goods Fleet & Distance Slabs
+        </button>
       </div>
+
+      {moduleTab === 'passenger' && (
+        <PassengerPricingSection />
+      )}
+
+      {moduleTab === 'surge' && (
+        <SurgeTimingSection />
+      )}
+
+      {moduleTab === 'goods' && (
+        <div className="pricing-layout">
+          {/* Left Side: Vehicle List */}
+          <VehicleSelector
+            vehicles={vehicles}
+            selectedId={selectedVehicle?.id || selectedVehicle?.vehicleId}
+            onSelect={handleSelectVehicle}
+            onAddVehicle={handleAddNewVehicle}
+            loading={loading}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+          />
+
+          {/* Right Side: Pricing Form & Preview */}
+          <PricingConfigForm
+            vehicle={selectedVehicle}
+            onSave={handleSavePricing}
+            onDelete={handleDeletePricing}
+            isSaving={isSaving}
+            isDirty={isDirty}
+            setIsDirty={setIsDirty}
+          />
+        </div>
+      )}
     </div>
   );
 };

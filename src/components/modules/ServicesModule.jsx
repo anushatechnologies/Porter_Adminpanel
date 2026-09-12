@@ -5,14 +5,14 @@ import { AppStateContext } from '../../context/AppState';
 export const CATEGORY_CONFIG = {
   vehicle: {
     id: 'vehicle',
-    name: 'Porter Trucks & Fleet',
+    name: 'Trucks',
     emoji: '🚚',
     badgeColor: '#15803D',
     badgeBg: '#DCFCE7'
   },
   two_wheeler: {
     id: 'two_wheeler',
-    name: '2 Wheeler / Bike',
+    name: '2 Wheeler',
     emoji: '🛵',
     badgeColor: '#0284C7',
     badgeBg: '#E0F2FE'
@@ -140,6 +140,8 @@ export default function ServicesModule() {
   const [selectedImageFile, setSelectedImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [isImageRemoved, setIsImageRemoved] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -417,7 +419,7 @@ export default function ServicesModule() {
       name: formData.name.trim(),
       label: formData.name.trim(),
       category: formData.category,
-      categoryName: CATEGORY_CONFIG[formData.category]?.name || 'Porter Trucks & Fleet',
+      categoryName: CATEGORY_CONFIG[formData.category]?.name || 'Trucks',
       subtitle: formData.subtitle.trim(),
       description: formData.subtitle.trim(),
       baseFare: parseFloat(formData.base_fare) || 0,
@@ -560,13 +562,12 @@ export default function ServicesModule() {
     }
   };
 
-  const handleDelete = async (id) => {
-    const targetService = services.find(s => s.id === id || s.serviceId === id || s.numericId === id);
-    const serviceName = targetService?.name || targetService?.label || id;
-    
-    if (!window.confirm(`Are you sure you want to permanently delete "${serviceName}"?`)) {
-      return;
-    }
+  const confirmDelete = async () => {
+    if (!serviceToDelete) return;
+    setIsDeleting(true);
+    const targetService = serviceToDelete;
+    const serviceName = targetService?.name || targetService?.label || targetService?.id;
+    const id = targetService?.id;
 
     const candidateIds = Array.from(new Set([
       targetService?.serviceId,
@@ -576,7 +577,7 @@ export default function ServicesModule() {
     ])).filter(Boolean);
 
     // Optimistic UI removal
-    setServices(prev => prev.filter(s => s.id !== id && s.serviceId !== id && s.numericId !== id));
+    setServices(prev => prev.filter(s => s.id !== id && s.serviceId !== id && s.numericId !== targetService?.numericId));
 
     let deleted = false;
     for (const testId of candidateIds) {
@@ -609,9 +610,12 @@ export default function ServicesModule() {
       candidateIds.forEach(k => {
         try { localStorage.removeItem(`porter_srv_img_${k}`); } catch (e) {}
       });
+      setServiceToDelete(null);
+      setIsDeleting(false);
       await fetchServices();
     } else {
-      alert(`Could not delete service "${serviceName}" from database. Server rejected the request.`);
+      setIsDeleting(false);
+      alert(`Could not delete "${serviceName}" from database. Server rejected the request.`);
       await fetchServices();
     }
   };
@@ -719,8 +723,8 @@ export default function ServicesModule() {
                 style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', fontSize: '13px', outline: 'none' }}
               >
                 <option value="ALL">All Categories</option>
-                <option value="vehicle">🚚 Porter Trucks & Fleet</option>
-                <option value="two_wheeler">🛵 2 Wheeler / Bike</option>
+                <option value="vehicle">🚚 Trucks</option>
+                <option value="two_wheeler">🛵 2 Wheeler</option>
                 <option value="packers">📦 Packers & Movers</option>
               </select>
             </div>
@@ -835,7 +839,7 @@ export default function ServicesModule() {
                       color: service.category === 'two_wheeler' ? '#0284C7' : service.category === 'packers' ? '#7E22CE' : '#15803D',
                       fontWeight: '600'
                     }}>
-                      {service.category === 'two_wheeler' ? '2 Wheeler' : service.category === 'packers' ? 'Packers & Movers' : 'Porter Truck'}
+                      {service.category === 'two_wheeler' ? '2 Wheeler' : service.category === 'packers' ? 'Packers & Movers' : 'Trucks'}
                     </span>
                   </td>
 
@@ -873,7 +877,7 @@ export default function ServicesModule() {
                       <button className="action-btn btn-view" onClick={() => handleOpenModal(service)} title="Edit Service">
                         <Edit size={16} />
                       </button>
-                      <button className="action-btn" style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', cursor: 'pointer' }} onClick={() => handleDelete(service.id)} title="Delete Service">
+                      <button className="action-btn" style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', cursor: 'pointer' }} onClick={() => setServiceToDelete(service)} title="Delete Service">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -937,8 +941,8 @@ export default function ServicesModule() {
                         onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
                         style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
                       >
-                        <option value="vehicle">🚚 Porter Trucks & Fleet</option>
-                        <option value="two_wheeler">🛵 2 Wheeler / Bike</option>
+                        <option value="vehicle">🚚 Trucks</option>
+                        <option value="two_wheeler">🛵 2 Wheeler</option>
                         <option value="packers">📦 Packers & Movers</option>
                       </select>
                     </div>
@@ -1239,6 +1243,56 @@ export default function ServicesModule() {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Custom In-App Delete Confirmation Modal */}
+      {serviceToDelete && (
+        <div className="modal-backdrop" style={{ zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { if (!isDeleting) setServiceToDelete(null); }}>
+          <div className="modal-container" style={{ maxWidth: '440px', padding: '28px', textAlign: 'center', borderRadius: '16px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#FEE2E2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <Trash2 size={30} />
+            </div>
+            
+            <h3 style={{ fontSize: '19px', fontWeight: '800', marginBottom: '8px', color: 'var(--text-main)' }}>
+              Delete Service?
+            </h3>
+            
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px', lineHeight: '1.5' }}>
+              Are you sure you want to permanently delete <strong>"{serviceToDelete.name}"</strong>? This will remove this vehicle option from customer apps.
+            </p>
+
+            <div style={{ backgroundColor: 'var(--bg-main)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '22px', display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '8px', overflow: 'hidden', backgroundColor: serviceToDelete.bg_tint || '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <img src={serviceToDelete.icon_url || getFallbackIcon(serviceToDelete)} alt={serviceToDelete.name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '3px' }} />
+              </div>
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ fontSize: '13px', fontWeight: '700', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{serviceToDelete.name}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>₹{serviceToDelete.base_fare} base • {serviceToDelete.capacity_label || `${serviceToDelete.capacity_kg} Kg`}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn"
+                disabled={isDeleting}
+                onClick={() => setServiceToDelete(null)}
+                style={{ flex: 1, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--bg-main)', fontWeight: '600', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={isDeleting}
+                onClick={confirmDelete}
+                style={{ flex: 1, padding: '10px 16px', backgroundColor: '#EF4444', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

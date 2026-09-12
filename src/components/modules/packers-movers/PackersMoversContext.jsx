@@ -222,9 +222,9 @@ export const PackersMoversProvider = ({ children }) => {
       const assignedTeam = teams.find(t => t.id === teamId);
       const payload = {
         teamId,
-        teamLeaderName: assignedTeam?.leaderName || driverName || 'Ramesh Kumar',
-        teamLeaderPhone: assignedTeam?.phone || driverPhone || '+919876543210',
-        vehicleNumber: vehicleNumber || 'TS 09 AB 1234'
+        teamLeaderName: assignedTeam?.leaderName || driverName || null,
+        teamLeaderPhone: assignedTeam?.phone || driverPhone || null,
+        vehicleNumber: vehicleNumber || null
       };
 
       const res = await authFetch(`/api/admin/pm/bookings/${bookingId}/assign-team`, {

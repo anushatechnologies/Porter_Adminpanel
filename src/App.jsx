@@ -19,6 +19,9 @@ import PricingManagement from './components/modules/PricingManagement';
 import BannersModule from './components/modules/BannersModule';
 import PrivacyPolicy from './components/public/PrivacyPolicy';
 import PackersMoversModule from './components/modules/packers-movers/PackersMoversModule';
+import PassengerCarsModule from './components/modules/passenger-cars/PassengerCarsModule';
+import TieredDispatchModule from './components/modules/dispatch/TieredDispatchModule';
+import ServiceableAreasModule from './components/modules/ServiceableAreasModule';
 
 const getStateFromURL = () => {
   const path = window.location.pathname;
@@ -38,12 +41,15 @@ const getStateFromURL = () => {
   let mainTab = 'dashboard';
   if (mainSeg === 'dashboard') mainTab = 'dashboard';
   else if (mainSeg === 'orders') mainTab = 'orders';
+  else if (mainSeg === 'passenger-cars' || mainSeg === 'cabs' || mainSeg === 'cars') mainTab = 'passenger-cars';
   else if (mainSeg === 'packers-movers' || mainSeg === 'pm' || mainSeg === 'movers') mainTab = 'packers-movers';
   else if (mainSeg === 'drivers' || mainSeg === 'withdrawals' || mainSeg === 'payouts') mainTab = 'drivers';
-  else if (mainSeg === 'vehicles') mainTab = 'vehicles';
+  else if (mainSeg === 'vehicles' || mainSeg === 'vehicle-types') mainTab = 'vehicles';
   else if (mainSeg === 'services') mainTab = 'services';
   else if (mainSeg === 'customers') mainTab = 'customers';
   else if (mainSeg === 'live-tracking') mainTab = 'tracking';
+  else if (mainSeg === 'tiered-dispatch' || mainSeg === 'dispatch' || mainSeg === 'auto-assignment') mainTab = 'tiered-dispatch';
+  else if (mainSeg === 'serviceable-areas' || mainSeg === 'areas' || mainSeg === 'geofence') mainTab = 'serviceable-areas';
   else if (mainSeg === 'finance') mainTab = 'finance';
   else if (mainSeg === 'support') mainTab = 'support';
   else if (mainSeg === 'notifications') mainTab = 'notifications';
@@ -60,7 +66,8 @@ const getStateFromURL = () => {
         localStorage.setItem('porter_orders_active_tab', subSeg);
       }
     } else if (mainTab === 'drivers') {
-      if (['online', 'verification', 'all'].includes(subSeg)) {
+      if (['our-services', 'passengers', 'online', 'verification', 'all'].includes(subSeg)) {
+        localStorage.setItem('porter_drivers_service_tab', subSeg === 'passengers' ? 'passengers' : 'our-services');
         localStorage.setItem('porter_drivers_active_tab', subSeg);
       }
     } else if (mainTab === 'vehicles') {
@@ -85,7 +92,10 @@ const getStateFromURL = () => {
   } else {
     // If no sub-segment, reset to default
     if (mainTab === 'orders') localStorage.setItem('porter_orders_active_tab', 'all');
-    else if (mainTab === 'drivers') localStorage.setItem('porter_drivers_active_tab', 'all');
+    else if (mainTab === 'drivers') {
+      const curService = localStorage.getItem('porter_drivers_service_tab') || 'our-services';
+      localStorage.setItem('porter_drivers_active_tab', curService);
+    }
     else if (mainTab === 'vehicles') localStorage.setItem('porter_vehicles_active_tab', 'all');
     else if (mainTab === 'support') localStorage.setItem('porter_support_active_tab', 'pending');
     else if (mainTab === 'settings') localStorage.setItem('porter_settings_active_tab', 'general');
@@ -100,6 +110,9 @@ const updateURLFromState = (mainTab) => {
     case 'dashboard':
       path = '/admin/dashboard';
       break;
+    case 'passenger-cars':
+      path = '/admin/passenger-cars';
+      break;
     case 'packers-movers':
       path = '/admin/packers-movers';
       break;
@@ -110,15 +123,12 @@ const updateURLFromState = (mainTab) => {
       break;
     }
     case 'drivers': {
-      const sub = localStorage.getItem('porter_drivers_active_tab') || 'all';
-      if (sub === 'all') path = '/admin/drivers';
-      else path = `/admin/drivers/${sub}`;
+      const service = localStorage.getItem('porter_drivers_service_tab') || 'our-services';
+      path = `/admin/drivers/${service}`;
       break;
     }
     case 'vehicles': {
-      const sub = localStorage.getItem('porter_vehicles_active_tab') || 'all';
-      if (sub === 'all') path = '/admin/vehicles';
-      else path = `/admin/vehicles/${sub}`;
+      path = '/admin/vehicle-types';
       break;
     }
     case 'services':
@@ -129,6 +139,12 @@ const updateURLFromState = (mainTab) => {
       break;
     case 'tracking':
       path = '/admin/live-tracking';
+      break;
+    case 'tiered-dispatch':
+      path = '/admin/tiered-dispatch';
+      break;
+    case 'serviceable-areas':
+      path = '/admin/serviceable-areas';
       break;
     case 'finance':
       path = '/admin/finance';
@@ -150,6 +166,9 @@ const updateURLFromState = (mainTab) => {
       break;
     case 'banners':
       path = '/admin/banners';
+      break;
+    case 'wallet':
+      path = '/admin/wallet';
       break;
     case 'settings': {
       const sub = localStorage.getItem('porter_settings_active_tab') || 'general';
@@ -240,12 +259,15 @@ function AppContent() {
         <main className="page-content">
           {activeTab === 'dashboard' && <DashboardHome setActiveTab={setActiveTab} />}
           {activeTab === 'orders' && <OrdersModule />}
+          {activeTab === 'passenger-cars' && <PassengerCarsModule />}
           {activeTab === 'packers-movers' && <PackersMoversModule />}
           {activeTab === 'drivers' && <DriversModule />}
           {activeTab === 'vehicles' && <VehiclesModule />}
           {activeTab === 'services' && <ServicesModule />}
           {activeTab === 'customers' && <CustomersModule />}
           {activeTab === 'tracking' && <LiveTracking />}
+          {activeTab === 'tiered-dispatch' && <TieredDispatchModule />}
+          {activeTab === 'serviceable-areas' && <ServiceableAreasModule />}
           {activeTab === 'finance' && <FinanceModule setActiveTab={setActiveTab} />}
           {activeTab === 'support' && <SupportModule />}
           {activeTab === 'notifications' && <NotificationsModule />}

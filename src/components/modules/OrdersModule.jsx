@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Eye, UserCheck, Ban, RefreshCw, X, MapPin, Phone, CreditCard, Clock, Truck, ShieldCheck, User, Search, Edit2 } from 'lucide-react';
+import { Eye, UserCheck, Ban, RefreshCw, X, MapPin, Phone, CreditCard, Clock, Truck, ShieldCheck, User, Search, Car, Box, Calendar, Key } from 'lucide-react';
 import { AppStateContext } from '../../context/AppState';
 
 export default function OrdersModule() {
-  const { orders, drivers, assignDriver, updateOrderStatus, setDriverVehicleType, rechargeDriverWallet } = useContext(AppStateContext);
+  const { orders, drivers, assignDriver, updateOrderStatus, setDriverVehicleType } = useContext(AppStateContext);
 
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || searchParams.get('customer') || '';
 
+  // 4 Core Tabs as specified in Section 1.1:
+  // 'all' | 'passenger' | 'packers_movers' | 'passengers_and_movers'
   const [activeTab, setActiveTab] = useState(() => {
     return initialSearch ? 'all' : (localStorage.getItem('porter_orders_active_tab') || 'all');
   });
@@ -32,7 +34,6 @@ export default function OrdersModule() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [assigningOrderId, setAssigningOrderId] = useState(null);
   const [assignCategoryFilter, setAssignCategoryFilter] = useState('MATCHED'); // 'MATCHED' | 'ALL'
-  const [editingDriverId, setEditingDriverId] = useState(null);
 
   const isVehicleCategoryMatch = (driverVeh, orderCategory) => {
     if (!driverVeh || !orderCategory) return false;
@@ -41,72 +42,88 @@ export default function OrdersModule() {
 
     if (dv.includes(oc) || oc.includes(dv)) return true;
 
+    // Passenger Cabs / Sedans / Hatchback / SUV
+    const cabKeys = ['cab', 'sedan', 'cabsedan', 'hatchback', 'suv', 'prime', 'mini', 'car'];
+    if (cabKeys.some(k => dv.includes(k)) && cabKeys.some(k => oc.includes(k))) return true;
+
     // 2 Wheeler / Scooter / Bike / Courier
     const twoWheelerKeys = ['scooter', 'bike', 'scooty', '2wheeler', 'twowheeler', 'courier', 'motorcycle', 'bick', 'bikecourier', '2wheelerbikecourier'];
-    const isDriver2W = twoWheelerKeys.some(k => dv.includes(k));
-    const isOrder2W = twoWheelerKeys.some(k => oc.includes(k));
-    if (isDriver2W && isOrder2W) return true;
+    if (twoWheelerKeys.some(k => dv.includes(k)) && twoWheelerKeys.some(k => oc.includes(k))) return true;
 
     // 3 Wheeler / Auto / Piaggio
     const threeWheelerKeys = ['3wheeler', 'threewheeler', 'auto', 'ape', 'champion', 'loader'];
-    const isDriver3W = threeWheelerKeys.some(k => dv.includes(k));
-    const isOrder3W = threeWheelerKeys.some(k => oc.includes(k));
-    if (isDriver3W && isOrder3W) return true;
+    if (threeWheelerKeys.some(k => dv.includes(k)) && threeWheelerKeys.some(k => oc.includes(k))) return true;
 
     // Tata Ace / Mini Truck / 750kg
     const aceKeys = ['tataace', 'ace', 'chotahathi', '750kg', 'minitruck', 'superace', 'bolero'];
-    const isDriverAce = aceKeys.some(k => dv.includes(k));
-    const isOrderAce = aceKeys.some(k => oc.includes(k));
-    if (isDriverAce && isOrderAce) return true;
+    if (aceKeys.some(k => dv.includes(k)) && aceKeys.some(k => oc.includes(k))) return true;
 
     // 8ft Pickup / 1200kg
     const pickupKeys = ['pickup8ft', 'pickup', '8ft', '1200kg', 'boleropickup', 'dost'];
-    const isDriverPickup = pickupKeys.some(k => dv.includes(k));
-    const isOrderPickup = pickupKeys.some(k => oc.includes(k));
-    if (isDriverPickup && isOrderPickup) return true;
+    if (pickupKeys.some(k => dv.includes(k)) && pickupKeys.some(k => oc.includes(k))) return true;
 
-    // Tata 407 / 2500kg / Heavy Truck
-    const heavyKeys = ['tata407', '407', '2500kg', 'eicher', 'heavytruck', 'truck', 'commercial'];
-    const isDriverHeavy = heavyKeys.some(k => dv.includes(k));
-    const isOrderHeavy = heavyKeys.some(k => oc.includes(k));
-    if (isDriverHeavy && isOrderHeavy) return true;
+    // Tata 407 / 2500kg / Heavy Truck / Packers Movers
+    const heavyKeys = ['tata407', '407', '2500kg', 'eicher', 'heavytruck', 'truck', 'commercial', 'packers', 'movers'];
+    if (heavyKeys.some(k => dv.includes(k)) && heavyKeys.some(k => oc.includes(k))) return true;
 
     return false;
   };
 
   const isPendingStatus = (s) => ['pending', 'searching', 'created'].includes(s);
-  const isAssignedStatus = (s) => ['assigned', 'driver_assigned', 'accepted'].includes(s);
-  const isTransitStatus = (s) => ['transit', 'pickup_started', 'on_way', 'in_transit'].includes(s);
-  const isCompletedStatus = (s) => ['completed', 'delivered', 'finished', 'done', 'success'].includes(s);
+  const isAssignedStatus = (s) => ['assigned', 'driver_assigned', 'accepted', 'confirmed'].includes(s);
+  const isTransitStatus = (s) => ['transit', 'pickup_started', 'on_way', 'in_transit', 'trip_started'].includes(s);
+  const isCompletedStatus = (s) => ['completed', 'delivered', 'finished', 'done', 'success', 'trip_completed'].includes(s);
   const isCancelledStatus = (s) => ['cancelled', 'rejected', 'failed'].includes(s);
   const isActiveStatus = (s) => isPendingStatus(s) || isAssignedStatus(s) || isTransitStatus(s) || s === 'active';
 
+  // Helper to categorize orders
+  const isPassengerOrder = (o) => {
+    const sc = (o.serviceCategory || '').toLowerCase();
+    const st = (o.serviceType || '').toLowerCase();
+    const sn = (o.serviceName || '').toLowerCase();
+    return sc === 'passenger' || st === 'passenger' || !!o.passengerCount || sn.includes('sedan') || sn.includes('cab');
+  };
+
+  const isMoversOrder = (o) => {
+    const sc = (o.serviceCategory || '').toLowerCase();
+    const st = (o.serviceType || '').toLowerCase();
+    const sn = (o.serviceName || '').toLowerCase();
+    return sc === 'packers_movers' || st === 'packers_movers' || !!o.houseSize || sn.includes('shifting') || sn.includes('packers');
+  };
+
   // Filters logic
   const filteredOrders = orders.filter(order => {
-    // Tab filtering
+    // 1. Service Type Tab Filtering
+    if (activeTab === 'passenger' && !isPassengerOrder(order)) return false;
+    if (activeTab === 'packers_movers' && !isMoversOrder(order)) return false;
+    if (activeTab === 'passengers_and_movers' && !isPassengerOrder(order) && !isMoversOrder(order)) return false;
+
+    // 2. Status Filter
     const status = (order.status || order.rawStatus || '').toLowerCase();
-    if (activeTab === 'active' && !isActiveStatus(status)) return false;
-    if (activeTab === 'scheduled' && !isPendingStatus(status)) return false;
-    if (activeTab === 'completed' && status !== 'completed') return false;
-    if (activeTab === 'cancelled' && status !== 'cancelled') return false;
-
-    // Search query filtering
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      (order.id || '').toLowerCase().includes(query) ||
-      (order.customer || '').toLowerCase().includes(query) ||
-      (order.pickup || '').toLowerCase().includes(query) ||
-      (order.drop || '').toLowerCase().includes(query);
-    if (!matchesSearch) return false;
-
-    // Status select filtering
     if (statusFilter !== 'All') {
       const sf = statusFilter.toLowerCase();
+      if (sf === 'active' && !isActiveStatus(status)) return false;
       if (sf === 'pending' && !isPendingStatus(status)) return false;
-      if (sf === 'assigned' && !isAssignedStatus(status)) return false;
-      if (sf === 'transit' && !isTransitStatus(status)) return false;
-      if (sf === 'completed' && status !== 'completed') return false;
-      if (sf === 'cancelled' && status !== 'cancelled') return false;
+      if ((sf === 'assigned' || sf === 'confirmed') && !isAssignedStatus(status)) return false;
+      if ((sf === 'transit' || sf === 'trip_started') && !isTransitStatus(status)) return false;
+      if ((sf === 'completed' || sf === 'trip_completed') && !isCompletedStatus(status)) return false;
+      if (sf === 'cancelled' && !isCancelledStatus(status)) return false;
+    }
+
+    // 3. Search query filtering
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch =
+        (order.id || '').toLowerCase().includes(query) ||
+        (order.bookingId || '').toLowerCase().includes(query) ||
+        (order.customer || '').toLowerCase().includes(query) ||
+        (order.customerPhone || order.phone || '').includes(query) ||
+        (order.customerEmail || '').toLowerCase().includes(query) ||
+        (order.driver || '').toLowerCase().includes(query) ||
+        (order.pickup || '').toLowerCase().includes(query) ||
+        (order.drop || '').toLowerCase().includes(query) ||
+        (order.serviceName || '').toLowerCase().includes(query);
+      if (!matchesSearch) return false;
     }
 
     return true;
@@ -116,7 +133,7 @@ export default function OrdersModule() {
     const s = status?.toLowerCase();
     if (isPendingStatus(s)) return 'badge-pending';
     if (isTransitStatus(s)) return 'badge-transit';
-    if (s === 'completed') return 'badge-completed';
+    if (isCompletedStatus(s)) return 'badge-completed';
     if (isAssignedStatus(s)) return 'badge-assigned';
     return 'badge-cancelled';
   };
@@ -129,11 +146,9 @@ export default function OrdersModule() {
   const handleAssignDriver = async (driverId) => {
     const result = await assignDriver(assigningOrderId, driverId);
     if (result && result.success === false) {
-      // Backend returned INSUFFICIENT_WALLET_BALANCE or other errors — do not close modal
       return;
     }
     setAssigningOrderId(null);
-    // If details modal is open, refresh its data
     if (selectedOrder && selectedOrder.id === assigningOrderId) {
       const updated = orders.find(o => o.id === assigningOrderId);
       setSelectedOrder({ ...updated, driver: drivers.find(d => d.id === driverId)?.name, status: 'assigned' });
@@ -149,22 +164,16 @@ export default function OrdersModule() {
 
   const truncateAddress = (addr) => {
     if (!addr) return '';
-    return addr.length > 40 ? addr.slice(0, 37) + '...' : addr;
+    return addr.length > 36 ? addr.slice(0, 33) + '...' : addr;
   };
 
-
   const assigningOrder = orders.find(o => o.id === assigningOrderId);
-  const targetCategory = assigningOrder?.serviceName || assigningOrder?.vehicleType || assigningOrder?.category || 'Commercial Vehicle';
+  const targetCategory = assigningOrder?.serviceName || assigningOrder?.vehicleCategory || assigningOrder?.vehicleType || 'Commercial Vehicle';
 
-  // REQUIREMENT: Drivers with empty/zero wallet balance (<= 0) are NOT shown on the Assign Driver list
+  // Online drivers available for assignment (Wallet check completely removed)
   const onlineDrivers = drivers
-    .filter(d => {
-      const isOnline = d.status && d.status.toLowerCase() === 'online';
-      const walletBal = d.walletBalance != null ? Number(d.walletBalance) : (d.wallet != null ? Number(d.wallet) : 0);
-      return isOnline && walletBal > 0;
-    })
+    .filter(d => d.status && d.status.toLowerCase() === 'online')
     .map(d => {
-      // Calculate a pseudo-distance since we don't have lat/lng geocoding
       const pseudoHash = ((d.id || 0).toString().charCodeAt(0) + (assigningOrderId || '').toString().charCodeAt(0) || 0) % 15;
       const distanceKm = pseudoHash + parseFloat((Math.random() * 2).toFixed(1));
       const isMatched = isVehicleCategoryMatch(d.vehicleType || d.vehicle, targetCategory);
@@ -176,56 +185,74 @@ export default function OrdersModule() {
       return a.distanceKm - b.distanceKm;
     });
 
-  const lowBalanceOnlineDrivers = drivers.filter(d => {
-    const isOnline = d.status && d.status.toLowerCase() === 'online';
-    const walletBal = d.walletBalance != null ? Number(d.walletBalance) : (d.wallet != null ? Number(d.wallet) : 0);
-    return isOnline && walletBal <= 0;
-  });
-
   const matchedDrivers = onlineDrivers.filter(d => d.isMatched);
   const displayedDrivers = assignCategoryFilter === 'MATCHED' && matchedDrivers.length > 0 ? matchedDrivers : onlineDrivers;
 
+  // Counts for tabs
   const allCount = orders.length;
-  const activeCount = orders.filter(o => isActiveStatus((o.status || o.rawStatus || '').toLowerCase())).length;
-  const scheduledCount = orders.filter(o => isPendingStatus((o.status || o.rawStatus || '').toLowerCase())).length;
-  const completedCount = orders.filter(o => (o.status || o.rawStatus || '').toLowerCase() === 'completed').length;
-  const cancelledCount = orders.filter(o => (o.status || o.rawStatus || '').toLowerCase() === 'cancelled').length;
+  const passengerCount = orders.filter(isPassengerOrder).length;
+  const packersCount = orders.filter(isMoversOrder).length;
+  const specialCount = orders.filter(o => isPassengerOrder(o) || isMoversOrder(o)).length;
 
   return (
     <div className="animate-fade">
-      {/* Tabs */}
-      <div className="tab-group">
-        <button className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`} onClick={() => { setActiveTab('all'); setSearchQuery(''); }}>All Orders ({allCount})</button>
-        <button className={`tab-btn ${activeTab === 'active' ? 'active' : ''}`} onClick={() => { setActiveTab('active'); setSearchQuery(''); }}>Active Orders ({activeCount})</button>
-        <button className={`tab-btn ${activeTab === 'scheduled' ? 'active' : ''}`} onClick={() => { setActiveTab('scheduled'); setSearchQuery(''); }}>Scheduled Orders ({scheduledCount})</button>
-        <button className={`tab-btn ${activeTab === 'completed' ? 'active' : ''}`} onClick={() => { setActiveTab('completed'); setSearchQuery(''); }}>Completed Orders ({completedCount})</button>
-        <button className={`tab-btn ${activeTab === 'cancelled' ? 'active' : ''}`} onClick={() => { setActiveTab('cancelled'); setSearchQuery(''); }}>Cancelled Orders ({cancelledCount})</button>
+      {/* 4 Unified/Service Tabs as specified in Section 1.1 */}
+      <div className="tab-group" style={{ flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+        <button
+          className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('all'); setSearchQuery(''); }}
+        >
+          All Orders ({allCount})
+        </button>
+
+        <button
+          className={`tab-btn ${activeTab === 'passenger' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('passenger'); setSearchQuery(''); }}
+        >
+          🚗 Passenger Rides ({passengerCount})
+        </button>
+
+        <button
+          className={`tab-btn ${activeTab === 'packers_movers' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('packers_movers'); setSearchQuery(''); }}
+        >
+          📦 Packers & Movers ({packersCount})
+        </button>
+
+        <button
+          className={`tab-btn ${activeTab === 'passengers_and_movers' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('passengers_and_movers'); setSearchQuery(''); }}
+          title="Passenger Cabs & Packers/Movers only (Excludes Freight Trucks)"
+        >
+          ✨ Special (Both Only) ({specialCount})
+        </button>
       </div>
 
       {/* Filters bar */}
       <div className="table-container">
         <div className="table-header-controls">
-          <div className="search-input-wrapper">
+          <div className="search-input-wrapper" style={{ flex: 1, maxWidth: '460px' }}>
             <Search className="header-search-icon" size={14} />
             <input
               type="text"
-              placeholder="Search by Order ID, customer, address..."
+              placeholder="Search by Booking ID, customer, phone, driver, route..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          <div className="filter-selects">
+          <div className="filter-selects" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <select
               className="custom-select"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="All">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="assigned">Assigned</option>
-              <option value="transit">In Transit</option>
-              <option value="completed">Completed</option>
+              <option value="active">Active (Ongoing)</option>
+              <option value="pending">Pending / Searching</option>
+              <option value="assigned">Assigned / Confirmed</option>
+              <option value="transit">In Transit / Trip Started</option>
+              <option value="completed">Trip Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
@@ -235,72 +262,148 @@ export default function OrdersModule() {
         <table className="custom-table">
           <thead>
             <tr>
-              <th>Order ID</th>
+              <th>Booking ID & OTP</th>
+              <th>Service Category</th>
               <th>Customer</th>
               <th>Pickup Address</th>
               <th>Drop Address</th>
-              <th>Driver</th>
+              <th>Driver & Vehicle</th>
               <th>Amount</th>
               <th>Status</th>
-              <th>Actions</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="8" style={{ textAlignment: 'center', padding: '30px', color: 'var(--text-muted)' }}>
-                  No matching orders found.
+                <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                  No orders found matching the selected filter.
                 </td>
               </tr>
             ) : (
-              filteredOrders.map(order => (
-                <tr key={order.id}>
-                  <td style={{ fontWeight: '700' }}>#{order.id}</td>
-                  <td>{order.customer}</td>
-                  <td title={order.pickup}>{truncateAddress(order.pickup)}</td>
-                  <td title={order.drop}>{truncateAddress(order.drop)}</td>
-                  <td>{order.driver ? order.driver : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Unassigned</span>}</td>
-                  <td style={{ fontWeight: '600' }}>₹{order.amount}</td>
-                  <td>
-                    <span className={`badge ${getStatusClass(order.status)}`}>
-                      {order.status}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="action-row">
-                      <button
-                        className="action-btn btn-view"
-                        title="View Details"
-                        onClick={() => setSelectedOrder(order)}
-                      >
-                        <Eye size={16} />
-                      </button>
+              filteredOrders.map(order => {
+                const isPass = isPassengerOrder(order);
+                const isMover = isMoversOrder(order);
 
-                      {!order.driver && order.status !== 'cancelled' && (
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '11px', color: '#8B5CF6', backgroundColor: '#EDE9FE', borderColor: '#C084FC', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          title="Assign Driver"
-                          onClick={() => handleOpenAssignModal(order.id)}
-                        >
-                          <UserCheck size={14} /> Assign Driver
-                        </button>
+                return (
+                  <tr key={order.id}>
+                    <td>
+                      <div style={{ fontWeight: '700', color: 'var(--text-main)' }}>#{order.bookingId || order.id}</div>
+                      {order.startOtp && (
+                        <div style={{ marginTop: '3px' }}>
+                          <span style={{ fontSize: '10px', backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', padding: '1px 6px', borderRadius: '4px', fontWeight: '700' }}>
+                            OTP: {order.startOtp}
+                          </span>
+                        </div>
                       )}
+                    </td>
 
-                      {order.status !== 'cancelled' && order.status !== 'completed' && (
-                        <button
-                          className="action-btn"
-                          style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
-                          title="Cancel Order"
-                          onClick={() => handleStatusChange(order.id, 'cancelled')}
-                        >
-                          <Ban size={16} />
-                        </button>
+                    <td>
+                      {isPass ? (
+                        <div>
+                          <span className="badge" style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', fontWeight: '700' }}>
+                            🚗 {order.serviceName || 'Cab Sedan'}
+                          </span>
+                          {order.passengerCount && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {order.passengerCount} Passengers
+                            </div>
+                          )}
+                        </div>
+                      ) : isMover ? (
+                        <div>
+                          <span className="badge" style={{ backgroundColor: '#FAF5FF', color: '#7E22CE', border: '1px solid #E9D5FF', fontWeight: '700' }}>
+                            📦 {order.houseSize || 'Packers & Movers'}
+                          </span>
+                          {order.scheduledSlot && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {order.scheduledSlot}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="badge" style={{ backgroundColor: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
+                            🚚 {order.serviceName || 'Goods Truck'}
+                          </span>
+                        </div>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    </td>
+
+                    <td>
+                      <div style={{ fontWeight: '600' }}>{order.customer || 'Customer'}</div>
+                      {(order.customerPhone || order.phone) && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {order.customerPhone || order.phone}
+                        </div>
+                      )}
+                    </td>
+
+                    <td title={order.pickup}>{truncateAddress(order.pickup)}</td>
+                    <td title={order.drop}>{truncateAddress(order.drop)}</td>
+
+                    <td>
+                      {order.driver ? (
+                        <div>
+                          <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{order.driver}</div>
+                          {(order.vehicleNumber || order.driverVehicleNumber) && (
+                            <code style={{ fontSize: '10px' }}>{order.vehicleNumber || order.driverVehicleNumber}</code>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '12px' }}>Unassigned</span>
+                      )}
+                    </td>
+
+                    <td>
+                      <div style={{ fontWeight: '700', color: 'var(--text-main)' }}>₹{order.amount}</div>
+                      <div style={{ fontSize: '10px', color: order.paymentStatus === 'PAID' ? '#059669' : '#D97706', fontWeight: '700' }}>
+                        {order.paymentStatus || order.payment}
+                      </div>
+                    </td>
+
+                    <td>
+                      <span className={`badge ${getStatusClass(order.status)}`}>
+                        {order.status}
+                      </span>
+                    </td>
+
+                    <td style={{ textAlign: 'right' }}>
+                      <div className="action-row" style={{ justifyContent: 'flex-end' }}>
+                        <button
+                          className="action-btn btn-view"
+                          title="View Details"
+                          onClick={() => setSelectedOrder(order)}
+                        >
+                          <Eye size={16} />
+                        </button>
+
+                        {!order.driver && order.status !== 'cancelled' && (
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '11px', color: '#8B5CF6', backgroundColor: '#EDE9FE', borderColor: '#C084FC', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            title="Assign Driver"
+                            onClick={() => handleOpenAssignModal(order.id)}
+                          >
+                            <UserCheck size={14} /> Assign
+                          </button>
+                        )}
+
+                        {order.status !== 'cancelled' && order.status !== 'completed' && (
+                          <button
+                            className="action-btn"
+                            style={{ color: '#EF4444', backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }}
+                            title="Cancel Order"
+                            onClick={() => handleStatusChange(order.id, 'cancelled')}
+                          >
+                            <Ban size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -311,14 +414,14 @@ export default function OrdersModule() {
         <div className="modal-backdrop" onClick={() => setSelectedOrder(null)}>
           <div className="modal-container" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Order Information - #{selectedOrder.id}</h3>
+              <h3 className="modal-title">Booking Information - #{selectedOrder.bookingId || selectedOrder.id}</h3>
               <button className="modal-close-btn" onClick={() => setSelectedOrder(null)}><X size={20} /></button>
             </div>
             <div className="modal-body">
               {/* Top summary row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-                <div style={{ padding: '16px', borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Delivery Status</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                <div style={{ padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Delivery / Trip Status</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
                     <span className={`badge ${getStatusClass(selectedOrder.status)}`}>{selectedOrder.status}</span>
                     {selectedOrder.status !== 'completed' && selectedOrder.status !== 'cancelled' && selectedOrder.driver && (
@@ -335,19 +438,89 @@ export default function OrdersModule() {
                     )}
                   </div>
                 </div>
-                <div style={{ padding: '16px', borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+
+                <div style={{ padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Payment Status</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
-                    <span style={{ fontSize: '15px', fontWeight: '700' }}>₹{selectedOrder.amount}</span>
-                    <span className="badge" style={{ backgroundColor: selectedOrder.payment === 'Paid' ? '#D1FAE5' : '#FEF3C7', color: selectedOrder.payment === 'Paid' ? '#10B981' : '#F59E0B' }}>
-                      {selectedOrder.payment}
+                    <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-main)' }}>₹{selectedOrder.amount}</span>
+                    <span className="badge" style={{ backgroundColor: selectedOrder.paymentStatus === 'PAID' ? '#DCFCE7' : '#FEF3C7', color: selectedOrder.paymentStatus === 'PAID' ? '#15803D' : '#D97706', fontWeight: '700' }}>
+                      {selectedOrder.paymentStatus || selectedOrder.payment || 'PAID'}
                     </span>
                   </div>
                 </div>
               </div>
 
+              {/* Start OTP & Trip Info */}
+              {selectedOrder.startOtp && (
+                <div style={{ padding: '12px 16px', borderRadius: '10px', backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Key size={20} color="#1D4ED8" />
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#1E40AF', textTransform: 'uppercase' }}>Start / Verification OTP</div>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#1D4ED8', letterSpacing: '2px', marginTop: '2px' }}>
+                        {selectedOrder.startOtp}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', color: '#1E40AF', fontWeight: '600' }}>Payment Method</div>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#1E40AF' }}>
+                      {selectedOrder.paymentMethod || 'UPI'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Specialized Section for Packers & Movers */}
+              {isMoversOrder(selectedOrder) && (
+                <div style={{ padding: '14px 16px', borderRadius: '10px', backgroundColor: '#FAF5FF', border: '1px solid #E9D5FF', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#7E22CE', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                    <Box size={16} /> Packers & Movers Specifications
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', fontSize: '12px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>House Size</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>{selectedOrder.houseSize || '2BHK'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Scheduled Date & Slot</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>
+                        {selectedOrder.scheduledDate || 'Flexible'} {selectedOrder.scheduledSlot ? `(${selectedOrder.scheduledSlot})` : ''}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Heavy Items</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>{selectedOrder.heavyItems || 'Fridge, Washing Machine'}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Specialized Section for Passenger Rides */}
+              {isPassengerOrder(selectedOrder) && (
+                <div style={{ padding: '14px 16px', borderRadius: '10px', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#15803D', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                    <Car size={16} /> Passenger Cab Details
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', fontSize: '12px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Vehicle Category</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>{selectedOrder.vehicleCategory || selectedOrder.serviceName || 'CAB_SEDAN'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Passenger Count</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>{selectedOrder.passengerCount || 2} Passengers</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Distance Est.</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>{selectedOrder.distanceKm ? `${selectedOrder.distanceKm} km` : 'Direct Route'}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Addresses */}
-              <div style={{ marginBottom: '24px' }}>
+              <div style={{ marginBottom: '20px' }}>
                 <h4 style={{ fontSize: '14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><MapPin size={16} color="var(--primary)" /> Route Info</h4>
                 <div style={{ position: 'relative', paddingLeft: '24px' }}>
                   <div style={{ position: 'absolute', left: '7px', top: '8px', bottom: '8px', width: '2px', backgroundColor: '#CBD5E1', borderStyle: 'dashed' }}></div>
@@ -395,9 +568,9 @@ export default function OrdersModule() {
                           <Phone size={12} color="#10B981" /> {selectedOrder.driverPhone}
                         </div>
                       )}
-                      {selectedOrder.driverVehicleNumber && (
+                      {(selectedOrder.vehicleNumber || selectedOrder.driverVehicleNumber) && (
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          Vehicle No: <strong style={{ color: 'var(--text-main)' }}>{selectedOrder.driverVehicleNumber}</strong>
+                          Vehicle: <strong style={{ color: 'var(--text-main)' }}>{selectedOrder.vehicleNumber || selectedOrder.driverVehicleNumber}</strong>
                         </div>
                       )}
                     </>
@@ -420,60 +593,12 @@ export default function OrdersModule() {
                 </div>
               </div>
 
-              {/* Additional Logistics Specification Card */}
-              <div style={{ padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', marginBottom: '24px' }}>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '10px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ShieldCheck size={15} color="var(--primary)" /> Logistics & Payment Overview
-                </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '12px' }}>
-                  <div>
-                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Vehicle Category</span>
-                    <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>{selectedOrder.serviceName || selectedOrder.vehicleName || 'Commercial Vehicle'}</span>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Payment Mode</span>
-                    <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>{selectedOrder.paymentMethod || 'Online UPI'}</span>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: '600' }}>Database ID</span>
-                    <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>#{selectedOrder.backendId || selectedOrder.bookingId || selectedOrder.id}</span>
-                  </div>
-                </div>
-                {/* Fare & Commission Accounting Breakdown */}
-                {(() => {
-                  const fare = Number(selectedOrder.amount || 0);
-                  const commission = parseFloat((fare * 0.05).toFixed(2));
-                  const driverEarnings = parseFloat((fare - commission).toFixed(2));
-                  return (
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
-                      <div style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>
-                        Trip Accounting & Commission Breakdown (5%)
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', backgroundColor: 'var(--surface)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <div>
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>Total Fare Collected</span>
-                          <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>₹{fare.toLocaleString()}</strong>
-                        </div>
-                        <div>
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>5% Platform Cut</span>
-                          <strong style={{ fontSize: '14px', color: '#DC2626' }}>-₹{commission.toLocaleString()}</strong>
-                        </div>
-                        <div>
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>Driver Net Earning</span>
-                          <strong style={{ fontSize: '14px', color: '#059669' }}>+₹{driverEarnings.toLocaleString()}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-
               {/* Activity Timeline */}
               <div>
                 <h4 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)' }}>
                   <Clock size={16} color="var(--primary)" /> Activity Logs & Delivery Milestones
                 </h4>
-                <div style={{ position: 'relative', paddingLeft: '12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ position: 'relative', paddingLeft: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ position: 'absolute', left: '16px', top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--border-color)' }}></div>
                   {(() => {
                     const logs = Array.isArray(selectedOrder.timeline) && selectedOrder.timeline.length > 0
@@ -511,28 +636,26 @@ export default function OrdersModule() {
         </div>
       )}
 
-      {/* Driver Assignment Modal */}
+      {/* Driver Assignment Modal (Cleaned of all wallet dependencies) */}
       {assigningOrderId && (
-        <div className="modal-backdrop" style={{ zIndex: 215 }} onClick={() => setAssigningOrderId(null)}>
-          <div className="modal-container" style={{ maxWidth: '580px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <UserCheck size={18} />
-                </div>
-                <div>
-                  <h3 className="modal-title" style={{ margin: 0 }}>Assign Driver - #{assigningOrderId}</h3>
-                </div>
+        <div className="modal-backdrop" onClick={() => setAssigningOrderId(null)}>
+          <div className="modal-container" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Assign Driver Partner</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Booking ID: #{assigningOrderId}
+                </p>
               </div>
               <button className="modal-close-btn" onClick={() => setAssigningOrderId(null)}><X size={20} /></button>
             </div>
 
-            <div className="modal-body" style={{ padding: '0px' }}>
-              {/* Customer Selected Category Info Banner */}
-              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div className="modal-body" style={{ padding: '0' }}>
+              {/* Target Service Badge */}
+              <div style={{ padding: '12px 20px', backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>
-                    Customer Selected Service Category
+                    Required Vehicle Category
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: '800', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                     <Truck size={16} />
@@ -543,18 +666,8 @@ export default function OrdersModule() {
                 {assigningOrder && (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'right' }}>
                     <div>Customer: <strong>{assigningOrder.customer}</strong></div>
-                    <div>Fare: <strong>₹{assigningOrder.amount}</strong> <span style={{ fontSize: '10px', color: '#059669', fontWeight: '700' }}>(5% Comm: ₹{parseFloat((assigningOrder.amount * 0.05).toFixed(2))})</span></div>
+                    <div>Fare: <strong>₹{assigningOrder.amount}</strong></div>
                   </div>
-                )}
-              </div>
-
-              {/* Commission Cut & Low Wallet Notice Banner */}
-              <div style={{ padding: '8px 20px', backgroundColor: 'rgba(59, 130, 246, 0.06)', borderBottom: '1px solid var(--border-color)', fontSize: '11px', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                <span>⚡ <strong>5% Platform Commission Cut on Ride Completion:</strong> Deducted from driver wallet automatically after order is delivered.</span>
-                {lowBalanceOnlineDrivers.length > 0 && (
-                  <span style={{ fontWeight: '700', color: '#D97706', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' }}>
-                    ⚠️ {lowBalanceOnlineDrivers.length} online driver(s) hidden (₹0 Wallet — must recharge first)
-                  </span>
                 )}
               </div>
 
@@ -683,6 +796,7 @@ export default function OrdersModule() {
                               title="Click to change driver vehicle category"
                             >
                               <option value="Unregistered Vehicle">❓ Unregistered Vehicle</option>
+                              <option value="Sedan Cab">🚗 Sedan Cab</option>
                               <option value="2 Wheeler (Bike Courier)">🛵 2 Wheeler (Bike Courier)</option>
                               <option value="Tata Ace (750kg)">🚚 Tata Ace (750kg)</option>
                               <option value="3 Wheeler (500kg)">🛺 3 Wheeler (500kg)</option>
@@ -691,7 +805,7 @@ export default function OrdersModule() {
                             </select>
 
                             <span>•</span>
-                            <code>{driver.vehicleNo}</code>
+                            <code>{driver.vehicleNo || driver.vehicleNumber}</code>
                           </div>
                         </div>
                       </div>
@@ -699,11 +813,8 @@ export default function OrdersModule() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
                         <div style={{ textAlign: 'right' }}>
                           <span className="badge badge-online">Online</span>
-                          <div style={{ fontSize: '11px', color: '#059669', fontWeight: '700', marginTop: '2px' }}>
-                            Wallet: ₹{(driver.walletBalance != null ? driver.walletBalance : (driver.wallet || 0)).toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
-                            Rating: {driver.rating} ★ • {driver.distanceKm} km
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Rating: {driver.rating || 5.0} ★ • {driver.distanceKm} km
                           </div>
                         </div>
 
@@ -732,11 +843,17 @@ export default function OrdersModule() {
               </div>
             </div>
 
-            <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Click any driver card to instantly assign to Order <strong>#{assigningOrderId}</strong>.
-              </div>
-              <button className="btn btn-secondary" onClick={() => setAssigningOrderId(null)}>Cancel</button>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Showing {displayedDrivers.length} online driver partner(s)
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setAssigningOrderId(null)}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
