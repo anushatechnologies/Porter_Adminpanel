@@ -264,6 +264,11 @@ export const AppStateProvider = ({ children }) => {
           };
           res = await fetch(targetUrl, { ...options, headers: retryHeaders });
         }
+        if (res.status === 401) {
+          localStorage.removeItem('porter_admin_token');
+          localStorage.removeItem('porter_admin_user');
+          setUser(null);
+        }
       }
       return res;
     } catch (e) {
@@ -282,12 +287,12 @@ export const AppStateProvider = ({ children }) => {
       ] = await Promise.all([
         authFetch('/api/admin/orders').then(res => res && res.ok ? res.json() : authFetch('/api/orders').then(r => r.json())).catch(() => []),
         authFetch('/api/bookings').then(res => res.json()).catch(() => []),
-        authFetch('/api/drivers').then(res => res.json()).catch(() => []),
+        authFetch('/api/admin/drivers').then(res => res && res.ok ? res.json() : authFetch('/api/drivers').then(r => r.json())).catch(() => []),
         authFetch('/api/payouts').then(res => res.json()).catch(() => []),
         authFetch('/api/tickets').then(res => res.json()).catch(() => []),
         authFetch('/api/notifications').then(res => res.json()).catch(() => []),
         authFetch('/api/admin/customers').then(res => res && res.ok ? res.json() : authFetch('/api/customers').then(r => r.json())).catch(() => []),
-        authFetch('/api/vehicles').then(res => res.json()).catch(() => []),
+        authFetch('/api/admin/vehicle-types').then(res => res && res.ok ? res.json() : authFetch('/api/vehicles').then(r => r.json())).catch(() => []),
         authFetch('/api/franchises').then(res => res.json()).catch(() => []),
         authFetch('/api/settings').then(res => res.json()).catch(() => ({})),
         authFetch('/api/users').then(res => res.json()).catch(() => []),
@@ -1062,12 +1067,13 @@ export const AppStateProvider = ({ children }) => {
 
   const assignDriver = async (orderId, driverId) => {
     const cleanDriverId = String(driverId).replace(/^DRV-/, '');
+    const numericDriverId = !isNaN(Number(cleanDriverId)) ? Number(cleanDriverId) : cleanDriverId;
     const selectedDriver = drivers.find(d => d.id === driverId || d.driverId === driverId || String(d.id) === cleanDriverId);
     if (!selectedDriver) return { success: false, message: 'Driver not found' };
 
     const orderToUpdate = orders.find(o => o.id === orderId || o.backendId === orderId);
 
-    // Optimistic Update: Link driver to order, wallet untouched until ride completion
+    // Optimistic Update: Link driver to order
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setOrders(prev => prev.map(order => (order.id === orderId || order.backendId === orderId) ? {
       ...order,
@@ -1078,61 +1084,94 @@ export const AppStateProvider = ({ children }) => {
       timeline: [...(order.timeline || []), { time: timeNow, text: `Driver Assigned: ${selectedDriver.name}` }]
     } : order));
 
-    const targetId = (orderToUpdate && orderToUpdate.backendId) ? orderToUpdate.backendId : orderId;
+    const rawTargetId = (orderToUpdate && orderToUpdate.backendId) ? orderToUpdate.backendId : orderId;
+    const cleanTargetId = String(rawTargetId).replace(/^BK_|^BK-|^ORD-/, '');
 
-    // Spec: POST /api/orders/{orderId}/assign
+    // Guide Spec: POST /api/bookings/{bookingId}/assign-driver & POST /api/bookings/{bookingId}/assign
     const assignPayload = {
-      driverId: cleanDriverId,
+      driverId: numericDriverId,
       driverName: selectedDriver.name,
       driverPhone: selectedDriver.phone || '',
       driverVehicleNumber: selectedDriver.vehicleNo || selectedDriver.vehicleNumber || ''
     };
 
     try {
-      const res = await authFetch(`/api/orders/${targetId}/assign`, {
+      let res = await authFetch(`/api/bookings/${cleanTargetId}/assign-driver`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(assignPayload)
       });
 
-      // Also call booking alias: POST /api/bookings/{bookingId}/assign
-      authFetch(`/api/bookings/${targetId}/assign`, {
+      if (!res || !res.ok) {
+        const aliasRes = await authFetch(`/api/bookings/${cleanTargetId}/assign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(assignPayload)
+        });
+        if (aliasRes && aliasRes.ok) res = aliasRes;
+      }
+
+      authFetch(`/api/orders/${cleanTargetId}/assign`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(assignPayload)
       }).catch(() => null);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        if (errData.error === 'INSUFFICIENT_WALLET_BALANCE' || res.status === 400) {
-          // Revert optimistic update
-          setOrders(prev => prev.map(order => (order.id === orderId || order.backendId === orderId) ? {
-            ...order, driver: orderToUpdate?.driver || null, status: orderToUpdate?.status || 'pending',
-            timeline: (order.timeline || []).filter(t => !t.text?.startsWith('Driver Assigned:'))
-          } : order));
-          alert(`❌ Cannot Assign Driver: ${errData.message || 'Driver wallet balance is ₹0. Please ask driver to recharge wallet before assigning orders.'}`);
+      if (!res || !res.ok) {
+        const errData = await res?.json().catch(() => ({})) || {};
+        // Revert optimistic update
+        setOrders(prev => prev.map(order => (order.id === orderId || order.backendId === orderId) ? {
+          ...order, driver: orderToUpdate?.driver || null, status: orderToUpdate?.status || 'pending',
+          timeline: (order.timeline || []).filter(t => !t.text?.startsWith('Driver Assigned:'))
+        } : order));
+
+        if (res && res.status === 403) {
+          alert(`🚫 Access Denied (403 Forbidden): ${errData.message || 'Access denied. Admin privileges are required to manually assign drivers.'}`);
+        } else if (res && res.status === 401) {
+          alert(`🔒 Unauthorized (401): ${errData.message || 'Please log in with admin privileges.'}`);
+        } else {
+          alert(`❌ Cannot Assign Driver: ${errData.message || 'Driver assignment rejected by server.'}`);
         }
         return { success: false, error: errData };
       }
 
-      // Spec success response: { success, walletBalance, remainingWalletBalance, orderFare, status }
       const data = await res.json().catch(() => ({}));
-      const serverWalletBal = data.walletBalance ?? data.remainingWalletBalance;
-      if (serverWalletBal != null) {
-        setDrivers(prev => prev.map(d => {
-          if (d.id === driverId || d.driverId === driverId || String(d.id) === cleanDriverId) {
-            const newBal = Number(serverWalletBal);
-            try {
-              localStorage.setItem(`porter_driver_wallet_${d.id}`, newBal);
-              if (d.driverId) localStorage.setItem(`porter_driver_wallet_${d.driverId}`, newBal);
-            } catch (e) {}
-            return { ...d, wallet: newBal, walletBalance: newBal };
-          }
-          return d;
-        }));
-      }
       return { success: true, data };
-    } catch (err) {
-      console.warn('Assign API error (network):', err);
-      return { success: true };
+    } catch (e) {
+      console.error('Driver assignment network error:', e);
+      return { success: false, message: 'Network error occurred' };
+    }
+  };
+
+  // Guide Spec: POST /api/bookings/{id}/retry-search
+  const retrySearchBooking = async (orderOrBookingId) => {
+    const rawTargetId = orderOrBookingId;
+    const cleanId = String(rawTargetId).replace(/^BK_|^BK-|^ORD-/, '');
+
+    try {
+      const res = await authFetch(`/api/bookings/${cleanId}/retry-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (res && res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setOrders(prev => prev.map(order => (order.id === orderOrBookingId || order.backendId === orderOrBookingId || String(order.id) === cleanId) ? {
+          ...order,
+          status: 'searching',
+          driver: null
+        } : order));
+        alert(`🔍 Driver search restarted for Booking #${cleanId}. Radar broadcast active.`);
+        return { success: true, data };
+      } else {
+        const errData = await res?.json().catch(() => ({})) || {};
+        alert(`⚠️ Could not restart driver search: ${errData.message || 'Booking not found or not in pending state'}`);
+        return { success: false, error: errData };
+      }
+    } catch (e) {
+      console.warn('retry-search error:', e);
+      alert('⚠️ Network error while restarting driver search');
+      return { success: false };
     }
   };
 
@@ -1308,9 +1347,12 @@ export const AppStateProvider = ({ children }) => {
     }
   };
   const deleteDriver = (driverId) => {
-    setDrivers(prev => prev.filter(d => String(d.id) !== String(driverId) && String(d.driverId) !== String(driverId)));
+    const cleanId = String(driverId).replace(/^DRV-/, '');
+    setDrivers(prev => prev.filter(d => String(d.id) !== String(driverId) && String(d.driverId) !== String(driverId) && String(d.id) !== cleanId));
     setVehicles(prev => prev.filter(v => String(v.id) !== String(driverId) && String(v.id) !== `V-${driverId}`));
-    authFetch(`/api/drivers/${driverId}`, { method: 'DELETE' }).catch(() => null);
+    authFetch(`/api/admin/drivers/${cleanId}`, { method: 'DELETE' })
+      .catch(() => authFetch(`/api/drivers/${cleanId}`, { method: 'DELETE' }))
+      .catch(() => null);
   };
 
   const deleteVehicle = (vehicleId) => {
@@ -1738,7 +1780,7 @@ export const AppStateProvider = ({ children }) => {
       deleteNotification, removeDuplicateNotifications, deleteDriver, deleteVehicle,
       addCustomerFunds, saveSettingsContext, saveUsersList, bypassLogin, authFetch, fetchAllData,
       walletSettings, fetchWalletSettings, updateWalletSettings, adminModifyWallet,
-      setDrivers, setCustomers
+      setDrivers, setCustomers, retrySearchBooking
     }}>
       {children}
     </AppStateContext.Provider>

@@ -159,10 +159,30 @@ export async function getAllPassengerBookings(authFetch) {
  * @param {string|number} driverId
  */
 export async function assignPassengerDriver(authFetch, bookingId, driverId) {
-  const res = await authFetch(`/api/passenger/bookings/${bookingId}/assign`, {
+  const cleanBookingId = String(bookingId).replace(/^BK_|^BK-|^ORD-/, '');
+  const numericDriverId = !isNaN(Number(driverId)) ? Number(driverId) : driverId;
+  let res = await authFetch(`/api/bookings/${cleanBookingId}/assign-driver`, {
     method: 'POST',
-    body: JSON.stringify({ driverId }),
-  });
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId: numericDriverId }),
+  }).catch(() => null);
+
+  if (!res || !res.ok) {
+    res = await authFetch(`/api/bookings/${cleanBookingId}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverId: numericDriverId }),
+    }).catch(() => null);
+  }
+
+  if (!res || !res.ok) {
+    res = await authFetch(`/api/passenger/bookings/${bookingId}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverId: numericDriverId }),
+    });
+  }
+
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

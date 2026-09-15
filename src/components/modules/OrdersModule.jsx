@@ -4,7 +4,7 @@ import { Eye, UserCheck, Ban, RefreshCw, X, MapPin, Phone, CreditCard, Clock, Tr
 import { AppStateContext } from '../../context/AppState';
 
 export default function OrdersModule() {
-  const { orders, drivers, assignDriver, updateOrderStatus, setDriverVehicleType } = useContext(AppStateContext);
+  const { orders, drivers, assignDriver, updateOrderStatus, setDriverVehicleType, retrySearchBooking } = useContext(AppStateContext);
 
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || searchParams.get('customer') || '';
@@ -379,14 +379,26 @@ export default function OrdersModule() {
                         </button>
 
                         {!order.driver && order.status !== 'cancelled' && (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '11px', color: '#8B5CF6', backgroundColor: '#EDE9FE', borderColor: '#C084FC', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            title="Assign Driver"
-                            onClick={() => handleOpenAssignModal(order.id)}
-                          >
-                            <UserCheck size={14} /> Assign
-                          </button>
+                          <>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '4px 10px', fontSize: '11px', color: '#8B5CF6', backgroundColor: '#EDE9FE', borderColor: '#C084FC', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              title="Manual Driver Assignment"
+                              onClick={() => handleOpenAssignModal(order.id)}
+                            >
+                              <UserCheck size={14} /> Assign
+                            </button>
+                            {retrySearchBooking && (
+                              <button
+                                className="action-btn"
+                                style={{ color: 'var(--primary)', backgroundColor: 'var(--bg-main)', borderColor: 'var(--border-color)' }}
+                                title="Restart Driver Auto-Search (Radar Broadcaster)"
+                                onClick={() => retrySearchBooking(order.id)}
+                              >
+                                <RefreshCw size={14} />
+                              </button>
+                            )}
+                          </>
                         )}
 
                         {order.status !== 'cancelled' && order.status !== 'completed' && (
@@ -578,15 +590,29 @@ export default function OrdersModule() {
                     <div>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', display: 'block' }}>No driver assigned</span>
                       {selectedOrder.status !== 'cancelled' && (
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '11px', marginTop: '6px', width: 'auto' }}
-                          onClick={() => {
-                            handleOpenAssignModal(selectedOrder.id);
-                          }}
-                        >
-                          Assign Driver Now
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '11px', width: 'auto' }}
+                            onClick={() => {
+                              handleOpenAssignModal(selectedOrder.id);
+                            }}
+                          >
+                            Assign Driver Now
+                          </button>
+                          {retrySearchBooking && (
+                            <button
+                              className="btn btn-primary"
+                              style={{ padding: '4px 10px', fontSize: '11px', width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => {
+                                retrySearchBooking(selectedOrder.id);
+                              }}
+                              title="Restart driver search radar / auto-assignment"
+                            >
+                              <RefreshCw size={12} /> Restart Driver Search
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
